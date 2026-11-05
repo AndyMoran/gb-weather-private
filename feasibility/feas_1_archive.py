@@ -14,7 +14,9 @@ crop function), in the `wx` environment:
 Outputs go to ~/gb-weather-data/feasibility/, outside every repository.
 """
 import datetime as dt, os, re, sys, xml.etree.ElementTree as ET
+import warnings
 import numpy as np, requests
+warnings.filterwarnings('ignore', category=FutureWarning)   # cfgrib's xarray merge notice
 
 BUCKET = 'https://ecmwf-forecasts.s3.eu-central-1.amazonaws.com'
 START, END = dt.date(2024, 2, 1), dt.date(2026, 10, 31)
@@ -58,15 +60,42 @@ def part_a():
     for r in bad[:30]: print('   ', r)
 
 
-def get(url, headers=None, tries=6):
-    """GET with a short, bounded retry on 5xx (S3 throttling); a 404 is final."""
-    import time
+class Missing(Exception):
+    """The object is not in the bucket (404 or 403). Only this means 'try the other layout'."""
+
+
+def get(url, headers=None, tries=9):
+    """GET from the bucket. 404/403 raise Missing at once. A 5xx (S3's 'slow down') or a dropped connection waits
+    and retries: exponential backoff from 10 s, capped at 5 minutes, with jitter, honouring Retry-After. Every
+    request is paced, because the 503s come from asking too fast."""
+    import random, time
     for k in range(tries):
-        r = requests.get(url, headers=headers or {}, timeout=120)
-        if r.status_code < 500: r.raise_for_status(); return r.content
-        print(f'   {r.status_code} on {url.rsplit("/", 1)[-1]}; retry {k + 1} of {tries - 1}', flush=True)
-        time.sleep(15 * (k + 1))
-    r.raise_for_status()
+        time.sleep(0.5)
+        try:
+            r = requests.get(url, headers=headers or {}, timeout=120)
+        except requests.RequestException as e:
+            code, r = type(e).__name__, None
+        else:
+            if r.status_code in (403, 404): raise Missing(url)
+            if r.status_code < 500: r.raise_for_status(); return r.content
+            code = r.status_code
+        if k == tries - 1: break
+        wait = min(300, 10 * 2 ** k) * random.uniform(0.8, 1.2)
+        if r is not None and r.headers.get('Retry-After', '').isdigit(): wait = max(wait, int(r.headers['Retry-After']))
+        print(f'   {code} on {url.rsplit("/", 1)[-1]}; waiting {wait:.0f} s (retry {k + 1} of {tries - 1})', flush=True)
+        time.sleep(wait)
+    raise RuntimeError(f'gave up after {tries} tries: {url}')
+
+
+def ranges(entries, gap=4_000_000):
+    """Merge the wanted fields' byte ranges when they sit within `gap` bytes of each other: fewer requests, a few
+    unwanted bytes. Returns (start, end) pairs, inclusive."""
+    out = []
+    for e in sorted(entries, key=lambda e: int(e['_offset'])):
+        a, z = int(e['_offset']), int(e['_offset']) + int(e['_length']) - 1
+        if out and a - out[-1][1] <= gap: out[-1][1] = max(out[-1][1], z)
+        else: out.append([a, z])
+    return out
 
 
 def fetch(date, steps, target, params=PARAMS):
@@ -79,17 +108,23 @@ def fetch(date, steps, target, params=PARAMS):
     import json
     for layout in ('ifs/0p25/oper/', '0p25/oper/'):
         base = f'{BUCKET}/{date:%Y%m%d}/00z/{layout}{date:%Y%m%d}000000'
-        try: get(f'{base}-{steps[0]}h-oper-fc.index', tries=1)
-        except requests.HTTPError: continue
+        try: first = get(f'{base}-{steps[0]}h-oper-fc.index')
+        except Missing: continue
         with open(target, 'wb') as out:
             for s in steps:
-                idx = [json.loads(l) for l in get(f'{base}-{s}h-oper-fc.index').decode().splitlines() if l.strip()]
+                raw = first if s == steps[0] else get(f'{base}-{s}h-oper-fc.index')
+                idx = [json.loads(l) for l in raw.decode().splitlines() if l.strip()]
                 want = [e for e in idx if e.get('param') in params and e.get('type', 'fc') == 'fc']
                 got = {e['param'] for e in want}
                 if got != set(params): raise RuntimeError(f'{date} step {s}: index lacks {set(params) - got}')
-                for e in sorted(want, key=lambda e: e['_offset']):
-                    a, n = int(e['_offset']), int(e['_length'])
-                    out.write(get(f'{base}-{s}h-oper-fc.grib2', {'Range': f'bytes={a}-{a + n - 1}'}))
+                blobs = {}
+                for a, z in ranges(want):
+                    blobs[a] = get(f'{base}-{s}h-oper-fc.grib2', {'Range': f'bytes={a}-{z}'})
+                for e in sorted(want, key=lambda e: int(e['_offset'])):     # keep only the wanted messages
+                    a = int(e['_offset']); start = max(k for k in blobs if k <= a)
+                    msg = blobs[start][a - start:a - start + int(e['_length'])]
+                    if msg[:4] != b'GRIB' or msg[-4:] != b'7777': raise RuntimeError(f'{date} step {s}: bad GRIB bytes')
+                    out.write(msg)
         return layout
     raise RuntimeError(f'{date}: run not found under either layout')
 
@@ -103,23 +138,23 @@ def part_b():
         seen = {}
         for ds in cfgrib.open_datasets(g, backend_kwargs=dict(indexpath='')):
             for v in ds.data_vars:
-                a = ds[v].attrs
-                seen[v] = (a.get('GRIB_dataDate'), a.get('GRIB_dataTime'), sorted(int(x) for x in
-                           (ds.step.values / np.timedelta64(1, 'h')).ravel()))
-        ok = all(s[0] == int(f'{d:%Y%m%d}') and s[1] == 0 and s[2] == NEED for s in seen.values()) and len(seen) == 4
-        print(f'B {d}: {"PASS" if ok else "CHECK"} layout {layout}; variables {sorted(seen)}; metadata {next(iter(seen.values()))[:2]}')
+                run = np.datetime64(ds['time'].values.ravel()[0], 'h')    # the run each field says it belongs to
+                seen[v] = (str(run), sorted(int(x) for x in (ds.step.values / np.timedelta64(1, 'h')).ravel()))
+        ok = all(x[0] == f'{d:%Y-%m-%d}T00' and x[1] == NEED for x in seen.values()) and len(seen) == 4
+        print(f'B {d}: {"PASS" if ok else "CHECK"} layout {layout}; variables {sorted(seen)}; run in metadata {next(iter(seen.values()))[0]}')
         if not ok: print('   ', seen)
 
 
 def part_c():
-    import xarray as xr, ecmwf_daily as E
+    import xarray as xr, ecmwf_daily as E   # noqa
     data = os.path.join(os.getcwd(), 'prospective', 'weather', 'data')
     d = dt.date(2026, 10, 31)
     while d < dt.date.today():
         mine = os.path.join(data, f'ifs_0p25_{d:%Y%m%d}_00z_gb.nc')
         if os.path.exists(mine):
             g = os.path.join(OUT, f'overlap_{d:%Y%m%d}.grib2'); n = g.replace('.grib2', '_gb.nc')
-            fetch(d, E.STEPS, g, E.PARAMS)                 # this script's downloader against the collector's files
+            try: fetch(d, E.STEPS, g, E.PARAMS)            # this script's downloader against the collector's files
+            except Exception as e: print(f'C {d}: FAILED {e}'); d += dt.timedelta(days=1); continue
             E.crop_to_gb(g, n)
             a, b = xr.open_dataset(mine), xr.open_dataset(n)
             same = all(np.array_equal(a[v].values, b[v].values, equal_nan=True) for v in a.data_vars)
