@@ -1,0 +1,10 @@
+# Downloaded weather data stays outside every repository (~/gb-weather-data/), but just in case:
+*.grib2
+*.grib
+*.nc
+*.idx
+# Credentials never belong here
+.cdsapirc
+*.key
+.env
+__pycache__/

@@ -1,0 +1,223 @@
+# Brief 4: does weather close the gap?
+
+Zero-shot forecasting models and a simple regression, given the same day-ahead weather forecasts, against NESO's forecast of GB electricity demand
+
+Draft for agreement · revision 7 · 5 November 2026 · Andy Moran (Heaviside Analytics)
+
+*Revision 7 corrects the prospective window's bank holidays, sets one study-wide error rate for the confirmatory tests, adds a temperature-by-wind term to the regression, and states that no real weather-forecast error is computed before the freeze. Revision 6 recorded the decisions on openness and inputs. Revision 5 rewrote revision 4 for plain style, changing no decision. Revisions 2 to 4 answered three reviews; the main changes were a confirmatory test for the main question, reanalysis for weather history, ECMWF's own archive as the weather source, and a scale-free measure for the time-of-day tests.*
+
+**Leakage first.** This study can offer what the demand study could not: a test window in which no day can be in any model's training data. A model cannot be trained on days that had not happened when its weights were fixed, and the pinned revisions of all three models predate November 2026: TimesFM 2.5, 2 October 2025; Chronos-2, 30 October 2025; Timestral, 15 October 2026 (Hugging Face commit dates, checked 5 November 2026; Chronos-2's pinned revision is dated 5 June 2026, but its weights file is unchanged, by hash, since it was added on 30 October 2025). The window runs from 20 November 2026 to March 2027. This rests on the pinned weights' own dates, not on any maker's account of its training data.
+
+## 1. The questions
+
+The demand study (rung 1, DOI [10.5281/zenodo.23962005](https://doi.org/10.5281/zenodo.23962005)) found that NESO's forecast had less than half the error of every model. NESO uses weather; the models and the regression did not. This study gives all of them the same weather and asks four questions, in order of the evidence each can give.
+
+| | Question | Measure | Window | Status |
+| --- | --- | --- | --- | --- |
+| **Q1** | **Does weather improve each forecaster?** | Ratio of mean daily error with weather to without, for each model and the regression | Backtest; repeated on the prospective window | **Confirmatory** |
+| Q2 | How much of the gap to NESO does weather close? | Reduction in the gap, in MW and as a share | Both | Estimate with interval |
+| Q3 | Does rung 1's 7–9% edge survive when the regression gets the same weather? | Each model with weather against the regression with weather | Both | Estimate with interval |
+| **Q4** | **Is weather's help concentrated in the evening, or weaker at midday?** | Each model's fractional error reduction in one block against others | Prospective | **Confirmatory if powered** |
+
+**One error rate for the whole study.** Every confirmatory test, in both windows and in Q4, is tested together under one graphical multiple-testing procedure (Bretz and colleagues, 2009), with a **study-wide family-wise error rate of 5%**. Running Q1's two windows as separate families at 5% each would let the chance of a false claim about a model approach 10%; one procedure keeps it at 5%. In outline:
+
+- the 5% is first shared equally among the eight Q1 tests: four forecasters (three models and the regression) in each window;
+- when a test rejects, its share passes to that forecaster's test in the other window, and, for a model, on to its two Q4 tests (Q4a, evening; Q4b, midday);
+- a Q4 test can therefore reject only after its model's Q1 test has rejected.
+
+The exact weights and transitions are fixed in the plan.
+
+**Q4 depends on Q1.** Asking where weather helps makes sense only for a model it helps, and the procedure enforces that: a model's Q4 tests receive no share of the error rate unless its Q1 test rejects. For any other model, Q4 is reported descriptively and cannot be read as evidence that weather helps somewhere.
+
+**If the two windows disagree,** both results are reported side by side. A confirmatory prospective result takes precedence, because no day in it can be in training. A disagreement in sign, or an effect credible in one window and clearly smaller in the other, is itself a finding; the windows' differences in leakage and season are named as possible causes. The disagreement is not resolved by choosing the window that suits.
+
+The backtest carries rung 1's leakage caveat: the models may have seen GB demand in training. A weather gain that appears in the backtest and holds in the prospective window is the strongest result this study can give.
+
+## 2. What is already known
+
+Searched 5 November 2026, on arXiv and Google Scholar, for "time series foundation models electricity load forecasting weather covariates", "foundation model day-ahead load forecasting weather forecast errors" and "Chronos-2 covariates load".
+
+| Study | What it did | What bears on this study |
+| --- | --- | --- |
+| Kaljevic, Arzola and Zhang (UC Santa Cruz), arXiv 2610.07232, 2026 | TimesFM 2.5, Chronos-2, Moirai 2.0 and TiRex against four trained models; day-ahead load in three US regions; weather with synthetic noise added | With noisy weather, zero-shot Chronos-2 lost its lead to a conventional model (TimesNet) |
+| Hertel et al. (KIT), arXiv 2607.15705, 2026 | Ten methods and Chronos-2 on German grid, feeder and customer loads | Chronos-2 "fails to accurately capture special events": large errors around holidays, as in rung 1 |
+| Cheong, Jiang and Ng, arXiv 2602.05390 | Foundation models with external data, Singapore and Australia | Weather's benefit was mixed and model-dependent; a simple baseline often won in Singapore's stable climate |
+| Virani et al., arXiv 2609.06656, 2026 (summary only; the abstract page could not be reached) | Chronos-2 with calendar and weather, US and European grids | Zero-shot Chronos-2 trailed purpose-built models; strong after fine-tuning |
+
+**The gap.** None of the three studies read in full uses the forecasts actually available at a fixed issue time: they use actual weather, reanalysis or synthetic noise. None scores against a system operator's forecast, none is preregistered, and none covers GB. Kaljevic and colleagues' finding, that realistic forecast errors can reverse a ranking, is why this study uses archived forecasts.
+
+## 3. Honest weather
+
+**Three variables:** temperature at 2 m, wind speed at 10 m, and solar radiation reaching the ground (global horizontal irradiance). On winter evenings there is almost no sunlight, so any evening effect must come through temperature and wind chill. Without wind, the evening test would be weakened before it began.
+
+**The target day's forecast is ECMWF's 00:00 UTC run of D−1,** the run available at the 09:30 issue time. It is the same open-data product the daily collector has saved since 31 October 2026.
+
+- **Source.** ECMWF's portal keeps only its last 12 runs, but the open data is mirrored and kept on public cloud storage: AWS from 18 January 2023, Azure from 21 January 2022, Google from 12 July 2023 (Herbie documentation; the feasibility check will list the archive to confirm). Licence: CC-BY-4.0, which ECMWF says allows commercial use with attribution.
+- **Window.** The open data has been at 0.25° resolution since February 2024 and at 0.4° before. **The backtest runs from 1 February 2024 to 31 October 2026, about 1,000 days,** at one resolution. An earlier start would mix resolutions, and rung 1's no-weather forecasts begin in 2024 anyway.
+- **Resolution.** 0.25° (about 25 km) is coarser than the 9 km model named in revision 1. At national scale, averaged over many locations, the difference should be small, and the study's premise is honest, simple inputs, not the best available.
+- **Steps.** The forecast hours that cover D in UK time: from step 24, or step 23 on British Summer Time days, when midnight falls at 23:00 UTC. The data are 3-hourly; the rule for interpolating to half-hours is fixed in advance.
+- **Solar units.** ECMWF accumulates solar radiation from the start of the run, in J/m². Differencing between steps and dividing by the interval gives mean W/m².
+- **A trap avoided.** Open-Meteo's Previous Runs API defines `previous_day1` as "predicted 24 hours before valid time". For an evening half-hour of D, that comes from a run issued after 09:30 on D−1. It would leak, and is not used.
+
+**Weather history** feeds the models' eight-week context and the regression's 365 training days.
+
+- **Source: ERA5 reanalysis,** from the Copernicus Climate Data Store (licence allows commercial use with attribution). It reaches back decades, so it covers the regression's training from January 2023.
+- **The last few days.** ERA5 appears about five days late. In the prospective window, the context's final days come from the first six hours of each ECMWF run, the nearest thing to observed weather at the cut-off. The splice rule is fixed before the freeze. The feasibility check confirms each model accepts a context whose last days come from a different source.
+- **A stated limitation.** The history is reanalysis; the target day is a forecast. Every forecaster, NESO included, faces the same mix.
+
+**From grid to Great Britain.** Over every 0.25° grid cell covering Great Britain, not a hand-picked list of places: temperature and wind weighted by population (ONS or WorldPop), solar radiation by installed solar capacity by region (DESNZ or NESO regional data). The sources are proposed in the feasibility check and fixed before the freeze, not tuned.
+
+**Checking the archive.** From 31 October 2026, the archive's files must match the daily collector's by hash. That ties the backtest's source to an independently timestamped record.
+
+## 4. The forecasters, with weather
+
+| Forecaster | How weather enters | Feasibility check confirms |
+| --- | --- | --- |
+| Chronos-2 | As known future inputs, natively | It works in the pinned `chronos-forecasting` 2.3.2, with `cross_learning` still off |
+| TimesFM 2.5 | Through XReg, a linear regression on the weather fitted within each forecast and combined with the model's output | It works for 2.5 in the pinned `timesfm` 3.0.2 and accepts all three weather series; the XReg mode is chosen before any weather forecast is made, with its reason stated in the plan |
+| Timestral | As known future inputs (`known_covariates`, spanning context and horizon) | It is present in the pinned `timestral` 1.0.0 |
+| Regression | Rung 1's terms (lags, day of week, bank holiday, Christmas period) plus, for each half-hour slot, centred temperature and its square, wind, temperature × wind (for wind chill), and solar radiation | Re-estimated daily on the 365 days to D−2, as before |
+| NESO | Unchanged: its forecast as published at 09:30 | — |
+
+All three models accept weather, so none is dropped. The regression gets a temperature-by-wind term so that it can represent wind chill, which the evening hypothesis invokes; without it, Q3 would be tilted against the regression in exactly the block the study cares about. TimesFM's route is partly a linear regression; its result is reported with that caveat.
+
+**The no-weather forecasts already exist.** On the backtest they are rung 1's saved forecasts, reused rather than rerun; a gate check confirms they match rung 1 exactly over the overlap, 1 February 2024 to 31 October 2026. On the prospective window they are the forecasts already made each day under the frozen prospective plan. The weather forecasts use exactly the same demand inputs, including rung 1's one filled half-hour.
+
+**Embedded solar is left out.** NESO publishes its own forecasts of solar and wind generation behind the meter, archived since 2019. Supplying them would add NESO's modelling, not just weather (decision 4).
+
+## 5. When to freeze
+
+The prospective no-weather forecasts are already being made, and outturn is public, so their errors could be computed at any time. An analyst who saw them could, in principle, shape the weather processing to suit. Three steps close that door.
+
+1. **Freeze the weather processing first.** The code that turns ECMWF's runs and ERA5 into national weather inputs is frozen and hashed by about 19 November 2026, before any weather forecast is made.
+2. **Publish the weather inputs daily.** From then on, a daily task computes each target day's national inputs on D−1 and pushes them, with hashes, at about 09:45, alongside the forecasts. A day counts only if its inputs reach GitHub before 00:00 UK time on D, by GitHub's server record: the same rule as the prospective forecasts, and for the same reason, since D's outturn cannot exist before D begins. **If a push misses that deadline,** the day is dropped from the confirmatory analysis; its inputs are rebuilt from the archive, logged as a deviation, and the day is reported descriptively. A rebuilt day is never counted as if it had been published on time.
+3. **Start this study's prospective window the next day:** 20 November 2026 to 31 March 2027, **132 days, about 19 weekly blocks,** against 147 days and 21 blocks from 5 November. Earlier days are reported descriptively. The shorter window costs power (Section 7).
+
+**No real weather-forecast error, in the backtest or the prospective window, is computed before the analysis plan is frozen.** Before the freeze the only computations are on synthetic data, with a stand-in forecaster, and the noise estimate for the power checks (Section 7). The analysis plan follows, frozen before any such error is computed. It states that outturn had been public but no forecast errors computed. The prospective weather forecasts themselves are computed later, from the archived inputs. Their protection is the public inputs and the freeze, not real-time computation, and the study says so.
+
+## 6. Is weather's help concentrated? (Q4)
+
+**What rung 1 shows.** From rung 1's published results (`results/attempt2/results.json`), the gap to NESO by block:
+
+| Block (UK time) | NESO's error | Chronos-2's gap | Timestral's gap | TimesFM 2.5's gap | Models' error ÷ NESO's |
+| --- | --- | --- | --- | --- | --- |
+| 00:00–04:00 | 415 MW | 461 MW | 455 MW | 606 MW | 2.1–2.5 |
+| 12:00–16:00 | 1,052 MW | 1,198 MW | 1,133 MW | 1,258 MW | 2.1–2.2 |
+| 16:00–20:00 | 762 MW | 800 MW | 745 MW | 916 MW | 2.0–2.2 |
+
+In megawatts the gap is largest at midday. As a ratio it barely changes: the models' error is about twice NESO's in every block. **That flat ratio matters.** If weather explained NESO's lead, and weather mattered more at some hours, the gap should be proportionally larger at those hours. It is not. Temperature affects demand at every hour, so this does not refute the weather explanation, but it lowers the odds of a strong time-of-day effect. Hence Q1 is primary and Q4 a refinement.
+
+**Choosing the measure.** Three measures are possible, and each answers a different question.
+
+| Measure, for each block | What it asks | Use |
+| --- | --- | --- |
+| **Fractional error reduction:** (model's error without weather − with) ÷ error without | Did weather cut the model's own error by a larger fraction here? | **Q4** |
+| Megawatts: error without weather − with | Where does weather buy the most accuracy? The trader's number | Reported, all six blocks |
+| Share of the gap closed: (error without − with) ÷ (error without − NESO's error) | How much of NESO's lead does weather remove here? | Reported (Q2) |
+
+Megawatts cannot measure concentration: any proportional effect gains more megawatts where errors are larger. The share of the gap depends on NESO's error too, and ranks blocks like the fractional reduction only because rung 1's gap happens to be about half the model's error everywhere. The fractional reduction needs neither NESO nor that coincidence. Under it, "weather helps equally" means the same fraction of the error in every block, the natural baseline when the models' errors run from about 870 MW overnight to 2,250 MW at midday.
+
+**Blocks.** Six four-hour blocks of UK clock time, from midnight, fixed by rule rather than from rung 1's curve. The overnight block, 00:00–04:00, holds the daily minimum, when weather matters least.
+
+**Q4a, the evening.** Winter evening demand, 16:00–20:00, is the most weather-sensitive of the day: heating, lighting and the evening ramp all respond to temperature, wind chill and light. **Hypothesis:** weather cuts each model's error by a larger fraction in the evening than overnight. This comes from physics, not from rung 1, whose time-of-day finding concerned the regression, not weather.
+
+**Q4b, midday.** Midday, 12:00–16:00, has the largest errors, but much of them probably comes from solar generation behind the meter, which the grid does not see and irradiance forecasts capture only roughly. **Hypothesis:** weather cuts each model's error by a smaller fraction at midday than in the other five blocks together. If weather helps as much or more at midday, that counts against the behind-the-meter explanation.
+
+Each is one-sided, one test per model, inside the study-wide procedure (Section 1), so a model's Q4 tests count only if its Q1 test has rejected. Together they answer "why the evening and not midday?" before anyone asks: opposite predictions, for opposite physical reasons, and each can fail.
+
+**Reported, not tested:**
+
+- **Bank holidays.** 21 England and Wales bank holidays fall in the backtest (Scotland's differ), and five in the prospective window: 25 December, 28 December (the Boxing Day substitute, since 26 December 2026 is a Saturday), 1 January, and Easter (26 and 29 March 2027). The regression's calendar comes from the GOV.UK bank-holidays file, downloaded once and hashed in the demand study's lock, never from typed dates; the feasibility check confirms these five are in it. Too few and too varied to test. Prediction: weather will not close the bank-holiday gap, because that gap is the calendar.
+- **Season.** The prospective window is winter only, so Q4 measures winter effects and is described that way.
+- **Share of the gap,** reported only where the gap without weather exceeds 100 MW, and always beside the change in MW.
+
+## 7. Power
+
+Every power check uses the block bootstrap, with 7-day blocks, on rung 1's errors. The size of any weather effect is unknown, so the checks assume a range. The noise between the two arms is estimated in the feasibility check, from synthetic inputs and from the spread between rung 1's similar forecasters, never from the backtest's weather forecasts. A first rough simulation proved too crude to report.
+
+| Test | Window | Effect sizes in the power table |
+| --- | --- | --- |
+| Q1 | Backtest, about 1,000 days | Weather cuts error by 2%, 3%, 5%, 7% and 10% |
+| Q1, prospective | 132 days, and 264 days (two winters) | The same |
+| Q4a, evening | Both prospective lengths | The evening's fractional reduction exceeds overnight's by 2, 4, 6, 8 and 10 points |
+| Q4b, midday | Both prospective lengths | Midday's fractional reduction falls short of the other blocks' by 2, 4, 6, 8 and 10 points |
+
+**The rule for each prospective test, fixed now:**
+
+Evaluated in this order:
+
+1. **One winter:** at least 80% power on 132 days at the middle effect (Q1: 5%; Q4: 6 points). Confirmatory this winter.
+2. **Two winters:** otherwise, at least 80% power on 264 days. Confirmatory in April 2028, with a descriptive interim read in April 2027.
+3. **Descriptive:** otherwise.
+
+**The branch is chosen at the plan's freeze,** from the table computed then: not earlier, because the noise is not yet known, and never after a prospective error is seen. If the noise estimate is too uncertain to call (if 80% lies within its uncertainty), the default is **two winters,** not a choice made on weak numbers. The prospective bootstrap has only about 19 weekly blocks, so its intervals and power are coarse; that is why the two-winter option exists. Two winters cost only time, because the forecasts and the weather collection are already running. Choosing them would mean no confirmatory prospective result until April 2028: a legitimate outcome of the design, decided before any result, not a failure.
+
+## 8. Gate checks
+
+As in rung 1, the official run is the first to pass every check. Before the freeze, every check is run on the real inputs with a stand-in forecaster, and shown to fail on corrupted input. Rung 1's checks carry over: data hashes, no look-ahead, model outputs (finite, exact length, repeatable), responsiveness, an independent regression, and weights hashes. Four are added:
+
+1. **The archive matches the daily collection,** by hash, for every day since 31 October 2026.
+2. **The no-weather forecasts equal rung 1's** on every shared backtest day.
+3. **The weather inputs used equal those published,** by hash, for every day.
+4. **No weather input postdates its issue time:** every target-day value comes from the 00:00 UTC run of D−1, and every history value from before the cut-off.
+
+## 9. What this study cannot establish
+
+- **Freedom from leakage in the backtest.** As in rung 1; the prospective window answers it.
+- **Why NESO leads.** Whatever weather leaves unexplained belongs to NESO's modelling, data and judgement, which this study cannot separate.
+- **What better weather inputs could do.** One weather model, three variables, fixed weightings. Better choices might do better; this study tests honest, simple ones.
+- **Weather as known at the time, for history.** Reanalysis is cleaner than real-time observation. It flatters every forecaster equally.
+- **Higher resolution.** ECMWF moved its open data to 0.1° on 20 October 2026; the study keeps 0.25° throughout, to match the backtest.
+- **Fine-tuning.** Zero-shot, by design.
+- **More than dates can show about leakage.** The prospective window's protection rests on the pinned revisions' commit dates, which are checked. It needs nothing from the makers' training data, which they do not fully disclose, but it also says nothing about the backtest.
+- **Value.** Accuracy, not money.
+
+## 10. How open to be
+
+A preregistration needs a verifiable timestamp, not a public method. Three options were considered:
+
+| | Public at the freeze | Private until the results |
+| --- | --- | --- |
+| **A. Hybrid (chosen)** | The plan; the daily national weather inputs, with hashes; the forecasts; the results | The weather-processing code, hashed at the freeze so it cannot change |
+| B. Sealed | Hashes of the plan and all code | Everything; "checkable" means checkable at the reveal |
+| C. Embargoed | A Zenodo record with DOI and timestamp | The files, until the embargo date |
+
+**A is the only option in which a reader can check, during the study, what the models actually received.** The national inputs are public as they are made, and so is the raw ECMWF archive they come from. The code that links the two is private only until the results, and its hash cannot change. At the reveal, code, hashes, raw data and published inputs close the loop exactly. B and C defer every check.
+
+**Three commitments make A checkable:**
+
+1. **The reveal date.** The weather-processing code is published with the results note, on the same day.
+2. **The reason, stated.** The weather-processing code is the author's own method, which he may use in paid work. It is hashed at the freeze and published with the results.
+3. **Inputs published before the target day.** Each day's inputs reach GitHub before 00:00 UK time on D, with the rule for missed days in Section 5.
+
+**Before the plan commits to A,** the weather pipeline runs once end to end on a synthetic day and publishes its result to the public repository. If that fails, A's daily burden is real, and that is better known before the freeze.
+
+## 11. Decisions
+
+Taken 5 November 2026:
+
+1. **Openness:** A, with the three commitments in Section 10.
+2. **Weather variables:** temperature, wind and solar radiation.
+3. **Spatial weighting:** a population- and capacity-weighted grid, with sources proposed in the feasibility check and fixed at the freeze.
+4. **Embedded solar:** left out of the main design; a labelled extra arm remains possible.
+5. **TimesFM's XReg mode:** chosen after the feasibility check, before any weather forecast, with its reason stated.
+6. **Licences:** none outstanding. ECMWF's open data and ERA5 both allow commercial use with attribution. Open-Meteo only verifies the archive and never feeds the results; if a fallback is needed, it is ECMWF's Azure or Google mirror.
+
+**Still needed from the author:** a Copernicus Climate Data Store account and API key, for ERA5. Its download queue can be slow, so registering early keeps the 19 November freeze realistic.
+
+## 12. Next steps
+
+1. **Agree this brief.**
+2. **Feasibility check,** with no model forecasting real demand:
+   - list the archive's 00:00 runs from 1 February 2024, on AWS and Azure, and record any missing runs or steps;
+   - check its depth: for runs from February 2024, June 2025 and early 2026, confirm every step and variable is present and each file's metadata names the run it claims to be; cross-check a few against an independent copy (Open-Meteo's Single Runs API), allowing for resolution;
+   - confirm the archive matches the collector's files since 31 October 2026, by hash;
+   - fetch ERA5 for the same days and fix the splice rule;
+   - confirm each model's weather inputs work in the pinned versions, on synthetic data, with all three weather series and a context whose last days come from a different source;
+   - check each cited arXiv paper on arxiv.org: three were read there on 5 November; Virani et al. (2609.06656) is not yet confirmed;
+   - estimate the noise for the power checks.
+3. **Run the weather pipeline once end to end on a synthetic day** and publish the result to the public repository.
+4. **Freeze the weather processing** and start the daily push of national weather inputs.
+5. **Write and freeze the analysis plan,** with both power checks and every gate check run on the real inputs with a stand-in forecaster, before any prospective error is computed.
+
+**Sources,** read 5 November 2026: the four studies in Section 2; ECMWF's open data page; the Herbie documentation on ECMWF archive sources; Open-Meteo's Single Runs, Previous Runs and Historical Forecast API documentation; Mistral's Timestral announcement (15 October 2026); timecopilot-timestral on PyPI; the google-research/timesfm README; NESO's Embedded Wind and Solar Forecasts page. Rung 1's figures by block come from `results/attempt2/results.json` in the demand study's repository.
