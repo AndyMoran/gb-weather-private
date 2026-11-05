@@ -41,15 +41,19 @@ def part_a():
     print('layout on the first day (sample keys):', first[:5] or 'NOTHING FOUND')
     rows, d = [], START
     while d <= END:
-        keys = list_keys(f'{d:%Y%m%d}/00z/ifs/0p25/oper/')
+        # ECMWF added the ifs/ level to the path when AIFS joined the bucket; earlier runs sit one level up.
+        for layout in ('ifs/0p25/oper/', '0p25/oper/'):
+            keys = list_keys(f'{d:%Y%m%d}/00z/{layout}')
+            if keys: break
         steps = {int(m.group(1)) for k in keys if (m := re.search(r'-(\d+)h-oper-fc\.grib2$', k))}
         missing = [s for s in NEED if s not in steps]
-        rows.append((d.isoformat(), len(keys), ' '.join(map(str, missing))))
-        if d.day == 1: print(d, 'files', len(keys), 'missing steps', missing or 'none', flush=True)
+        rows.append((d.isoformat(), layout if keys else '', len(keys), ' '.join(map(str, missing))))
+        if d.day == 1 or (rows[-2][1] != rows[-1][1] if len(rows) > 1 else False):
+            print(d, layout if keys else 'NO LAYOUT', 'files', len(keys), 'missing steps', missing or 'none', flush=True)
         d += dt.timedelta(days=1)
     with open(os.path.join(OUT, 'coverage.csv'), 'w') as f:
-        f.write('date,files,missing_steps\n'); f.writelines(f'{a},{b},{c}\n' for a, b, c in rows)
-    bad = [r for r in rows if r[2] or r[1] == 0]
+        f.write('date,layout,files,missing_steps\n'); f.writelines(f'{a},{b},{c},{e}\n' for a, b, c, e in rows)
+    bad = [r for r in rows if r[3] or r[2] == 0]
     print(f'A: {len(rows)} days checked; {len(bad)} with the run or a needed step missing')
     for r in bad[:30]: print('   ', r)
 

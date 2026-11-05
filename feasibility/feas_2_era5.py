@@ -28,12 +28,35 @@ def request(days, target):
         'data_format': 'netcdf', 'download_format': 'unarchived'}, target)
 
 
+def open_era5(f):
+    """Open a CDS download. Mixing instantaneous variables (temperature, wind) with an accumulated one (solar
+    radiation) makes the CDS return a zip of two NetCDF files, whatever the file is called; merge them."""
+    import xarray as xr, zipfile
+    if not zipfile.is_zipfile(f):
+        return xr.open_dataset(f, engine='netcdf4'), ['(single NetCDF file)']
+    d = f[:-3] + '_unzipped'; os.makedirs(d, exist_ok=True)
+    with zipfile.ZipFile(f) as z:
+        names = z.namelist(); z.extractall(d)
+    parts = [xr.open_dataset(os.path.join(d, n), engine='netcdf4') for n in names if n.endswith('.nc')]
+    return xr.merge(parts, compat='override'), names
+
+
 def part_a():
     t = time.time(); f = os.path.join(OUT, 'era5_2024_01.nc')
-    request([dt.date(2024, 1, d) for d in range(1, 32)], f)
-    import xarray as xr
-    ds = xr.open_dataset(f)
-    print(f'A: {time.time() - t:.0f} s for one month; variables {sorted(ds.data_vars)}; dims {dict(ds.sizes)}')
+    if os.path.exists(f):
+        print('A: using the file already downloaded (the first run took about 3 minutes, queue included)')
+    else:
+        request([dt.date(2024, 1, d) for d in range(1, 32)], f)
+        print(f'A: {time.time() - t:.0f} s for one month, queue included')
+    ds, names = open_era5(f)
+    print(f'A: files inside {names}')
+    print(f'A: variables {sorted(ds.data_vars)}; dims {dict(ds.sizes)}')
+    for v in ds.data_vars:
+        x = ds[v]
+        print(f'   {v}: units {x.attrs.get("units")}; min {float(x.min()):.4g}; max {float(x.max()):.4g}; '
+              f'missing {int(x.isnull().sum())}')
+    tc = 'valid_time' if 'valid_time' in ds.coords else 'time'
+    print(f'   first and last times: {ds[tc].values[0]} .. {ds[tc].values[-1]}')
 
 
 def part_b():
