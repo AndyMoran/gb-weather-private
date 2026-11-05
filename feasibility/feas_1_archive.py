@@ -58,16 +58,48 @@ def part_a():
     for r in bad[:30]: print('   ', r)
 
 
-def fetch(date, steps, target):
-    from ecmwf.opendata import Client
-    Client(source='aws', model='ifs', resol='0p25').retrieve(date=date.strftime('%Y%m%d'), time=0, stream='oper',
-                                                            type='fc', step=steps, param=PARAMS, target=target)
+def get(url, headers=None, tries=6):
+    """GET with a short, bounded retry on 5xx (S3 throttling); a 404 is final."""
+    import time
+    for k in range(tries):
+        r = requests.get(url, headers=headers or {}, timeout=120)
+        if r.status_code < 500: r.raise_for_status(); return r.content
+        print(f'   {r.status_code} on {url.rsplit("/", 1)[-1]}; retry {k + 1} of {tries - 1}', flush=True)
+        time.sleep(15 * (k + 1))
+    r.raise_for_status()
+
+
+def fetch(date, steps, target, params=PARAMS):
+    """Download only the wanted fields of one 00 UTC run, straight from the bucket.
+
+    ecmwf-opendata builds the post-AIFS path (ifs/0p25/oper) for every date, so it cannot reach runs before
+    29 February 2024. This reads each step's .index (one JSON line per field, with its byte offset and length) and
+    range-requests just the wanted fields, trying both layouts. Concatenated GRIB messages are a valid GRIB file.
+    Returns the layout used."""
+    import json
+    for layout in ('ifs/0p25/oper/', '0p25/oper/'):
+        base = f'{BUCKET}/{date:%Y%m%d}/00z/{layout}{date:%Y%m%d}000000'
+        try: get(f'{base}-{steps[0]}h-oper-fc.index', tries=1)
+        except requests.HTTPError: continue
+        with open(target, 'wb') as out:
+            for s in steps:
+                idx = [json.loads(l) for l in get(f'{base}-{s}h-oper-fc.index').decode().splitlines() if l.strip()]
+                want = [e for e in idx if e.get('param') in params and e.get('type', 'fc') == 'fc']
+                got = {e['param'] for e in want}
+                if got != set(params): raise RuntimeError(f'{date} step {s}: index lacks {set(params) - got}')
+                for e in sorted(want, key=lambda e: e['_offset']):
+                    a, n = int(e['_offset']), int(e['_length'])
+                    out.write(get(f'{base}-{s}h-oper-fc.grib2', {'Range': f'bytes={a}-{a + n - 1}'}))
+        return layout
+    raise RuntimeError(f'{date}: run not found under either layout')
 
 
 def part_b():
     import cfgrib
     for d in (dt.date(2024, 2, 15), dt.date(2025, 6, 15), dt.date(2026, 1, 15)):
-        g = os.path.join(OUT, f'depth_{d:%Y%m%d}.grib2'); fetch(d, NEED, g)
+        g = os.path.join(OUT, f'depth_{d:%Y%m%d}.grib2')
+        try: layout = fetch(d, NEED, g)
+        except Exception as e: print(f'B {d}: FAILED {e}'); continue
         seen = {}
         for ds in cfgrib.open_datasets(g, backend_kwargs=dict(indexpath='')):
             for v in ds.data_vars:
@@ -75,7 +107,7 @@ def part_b():
                 seen[v] = (a.get('GRIB_dataDate'), a.get('GRIB_dataTime'), sorted(int(x) for x in
                            (ds.step.values / np.timedelta64(1, 'h')).ravel()))
         ok = all(s[0] == int(f'{d:%Y%m%d}') and s[1] == 0 and s[2] == NEED for s in seen.values()) and len(seen) == 4
-        print(f'B {d}: {"PASS" if ok else "CHECK"} variables {sorted(seen)}; metadata {next(iter(seen.values()))[:2]}')
+        print(f'B {d}: {"PASS" if ok else "CHECK"} layout {layout}; variables {sorted(seen)}; metadata {next(iter(seen.values()))[:2]}')
         if not ok: print('   ', seen)
 
 
@@ -87,9 +119,7 @@ def part_c():
         mine = os.path.join(data, f'ifs_0p25_{d:%Y%m%d}_00z_gb.nc')
         if os.path.exists(mine):
             g = os.path.join(OUT, f'overlap_{d:%Y%m%d}.grib2'); n = g.replace('.grib2', '_gb.nc')
-            from ecmwf.opendata import Client
-            Client(source='aws', model='ifs', resol='0p25').retrieve(date=d.strftime('%Y%m%d'), time=0, stream='oper',
-                                                                    type='fc', step=E.STEPS, param=E.PARAMS, target=g)
+            fetch(d, E.STEPS, g, E.PARAMS)                 # this script's downloader against the collector's files
             E.crop_to_gb(g, n)
             a, b = xr.open_dataset(mine), xr.open_dataset(n)
             same = all(np.array_equal(a[v].values, b[v].values, equal_nan=True) for v in a.data_vars)
