@@ -35,6 +35,10 @@ D = os.path.expanduser('~/gb-weather-data/weights')
 LATS = np.round(np.arange(61, 48.99, -0.25), 2)            # the weather box, north to south: 49 points
 LONS = np.round(np.arange(-9, 2.51, 0.25), 2)              # west to east: 47 points
 YEAR = '2025'
+# DESNZ uses some authority codes that ONS has since replaced. Each entry: old code -> code in the boundary file.
+# Barnsley and Sheffield took new codes in 2025 after a minor boundary change between them (Barnsley and Sheffield
+# (Boundary Change) Order 2024); ONS marks E08000016 'replaced by E08000038' and lists Sheffield as E08000039.
+RECODE = {'E08000016': 'E08000038', 'E08000019': 'E08000039'}
 
 
 def sha256(p):
@@ -111,7 +115,7 @@ def desnz_capacity(xlsx):
     book = pd.ExcelFile(xlsx)
     cands = []
     for sh in book.sheet_names:
-        raw = book.parse(sh, header=None, nrows=15)
+        raw = pd.read_excel(book, sheet_name=sh, header=None, nrows=15)
         text = ' '.join(str(v) for v in raw.values.ravel() if isinstance(v, str)).lower() + ' ' + sh.lower()
         if 'capacity' in text and YEAR in text and 'generation' not in sh.lower():
             cands.append(sh)
@@ -121,7 +125,7 @@ def desnz_capacity(xlsx):
     # prefer a sheet named for capacity and the year
     cands.sort(key=lambda sh: (YEAR not in sh, 'capacity' not in sh.lower()))
     sh = cands[0]
-    raw = book.parse(sh, header=None)
+    raw = pd.read_excel(book, sheet_name=sh, header=None)
     hdr = next((k for k in range(min(40, len(raw)))
                 if any(isinstance(v, str) and v.strip().lower().startswith('local authority code') for v in raw.iloc[k])), None)
     if hdr is None: sys.exit(f'Sheet "{sh}": no "Local Authority Code" header row')
@@ -146,16 +150,17 @@ def solar(xlsx, lads):
     import geopandas as gpd
     from shapely.geometry import box
     cap, info = desnz_capacity(xlsx)
-    gb = cap[~cap['code'].str.startswith('N')].groupby('code', as_index=True)['mw'].sum()
+    gb = cap[~cap['code'].str.startswith('N')].assign(code=lambda c: c['code'].replace(RECODE))
+    gb = gb.groupby('code', as_index=True)['mw'].sum()
     l = lads.to_crs(27700); lc = code_col(l, 'LAD')
     l = l[~l[lc].str.startswith('N')].dissolve(by=lc)
     missing = sorted(set(gb.index) - set(l.index))
     miss_mw = float(gb[missing].sum())
-    info.update({'capacity_gb_mw': float(gb.sum()), 'authorities': int(len(gb)),
+    info.update({'capacity_gb_mw': float(gb.sum()), 'authorities': int(len(gb)), 'recoded': RECODE,
                  'codes_not_in_boundaries': missing, 'capacity_not_in_boundaries_mw': miss_mw})
-    if miss_mw > 0.01 * gb.sum():
-        sys.exit(f'{miss_mw:.0f} MW sits in authority codes missing from the boundary file ({missing[:10]}...): '
-                 'use the boundary edition whose codes match the DESNZ workbook')
+    if missing:
+        sys.exit(f'{miss_mw:.1f} MW sits in authority codes missing from the boundary file: {missing}. '
+                 'Add each to RECODE from ONS code history; no capacity is dropped silently.')
     cells = [(i, j, box(lon - .125, lat - .125, lon + .125, lat + .125).segmentize(0.01))
              for i, lat in enumerate(LATS) for j, lon in enumerate(LONS)]
     g = gpd.GeoDataFrame({'i': [c[0] for c in cells], 'j': [c[1] for c in cells]},
