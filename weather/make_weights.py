@@ -28,6 +28,9 @@ Run in `wx` (once:  pip install geopandas rasterio openpyxl matplotlib):
 import datetime as dt, glob, hashlib, json, os, re, sys
 import numpy as np
 
+# Full-resolution boundaries (Scotland's coast as one feature) exceed GDAL's default GeoJSON feature size; lift it.
+os.environ.setdefault('OGR_GEOJSON_MAX_OBJ_SIZE', '0')
+
 D = os.path.expanduser('~/gb-weather-data/weights')
 LATS = np.round(np.arange(61, 48.99, -0.25), 2)            # the weather box, north to south: 49 points
 LONS = np.round(np.arange(-9, 2.51, 0.25), 2)              # west to east: 47 points
