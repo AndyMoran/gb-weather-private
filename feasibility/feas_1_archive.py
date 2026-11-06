@@ -7,6 +7,9 @@ Feasibility check 1: ECMWF's open-data archive on AWS (Brief 4, Section 12).
      file's own metadata names the run it claims to be.
   C  Overlap: for runs since 31 October 2026, download from the archive exactly what the daily collector downloaded, crop it
      the same way, and check the values equal the collector's saved files.
+  E  Availability: for runs whose AWS copy arrived after 09:30 UK time on D-1, the upload times on Google's and
+     Azure's copies. A run was public at the issue time if any copy had every step 0-48 by then. Writes
+     availability.csv.
   D  Parameters: for every day, which of the four variables the run's index lists (steps 24 and 48); finds when
      solar radiation first appears. Writes params.csv.
 
@@ -260,9 +263,68 @@ def part_d():
     print(f'D: {len(rows)} days; all four on {sum(r[3] == " ".join(PARAMS) for r in rows)}')
 
 
+def upload_times(src, date, layout):
+    """{step: upload time (UTC)} for steps 0-48 of one run on one copy. Google: the JSON API's timeCreated.
+    Azure: the container listing's Creation-Time (else Last-Modified), with Planetary Computer's read token."""
+    from email.utils import parsedate_to_datetime
+    prefix = f'{date:%Y%m%d}/00z/{layout}'; out = {}
+    if src == 'google':
+        url, tok = 'https://storage.googleapis.com/storage/v1/b/ecmwf-open-data/o', None
+        while True:
+            q = {'prefix': prefix, 'fields': 'items(name,timeCreated),nextPageToken'}
+            if tok: q['pageToken'] = tok
+            r = requests.get(url, params=q, timeout=60); r.raise_for_status(); j = r.json()
+            for it in j.get('items', []):
+                if (m := re.search(r'-(\d+)h-oper-fc\.grib2$', it['name'])):
+                    out[int(m.group(1))] = dt.datetime.fromisoformat(it['timeCreated'].replace('Z', '+00:00'))
+            tok = j.get('nextPageToken')
+            if not tok: return out
+    marker = ''
+    while True:
+        url = f"{SOURCES['azure']}?restype=container&comp=list&prefix={prefix}&{azure_token()}" + (f'&marker={marker}' if marker else '')
+        r = requests.get(url, timeout=60); r.raise_for_status(); root = ET.fromstring(r.content)
+        for b in root.iter('Blob'):
+            name = b.findtext('Name')
+            if (m := re.search(r'-(\d+)h-oper-fc\.grib2$', name or '')):
+                t = b.findtext('Properties/Creation-Time') or b.findtext('Properties/Last-Modified')
+                out[int(m.group(1))] = parsedate_to_datetime(t).astimezone(dt.timezone.utc)
+        marker = root.findtext('NextMarker') or ''
+        if not marker: return out
+
+
+def part_e():
+    """For each run the AWS listing put after the issue time (coverage.csv from part A), when did it reach Google's
+    and Azure's copies? A run was public at the issue time if any copy had every step 0-48 by then."""
+    import csv
+    rows = [r for r in csv.DictReader(open(os.path.join(OUT, 'coverage.csv'))) if r['uploaded_after_issue'] == 'True']
+    print(f'E: {len(rows)} runs flagged by the AWS times; checking Google and Azure')
+    res = []
+    for r in rows:
+        d = dt.date.fromisoformat(r['date']); iss = issue_utc(d); best = {'aws': r['last_upload_utc']}
+        for src in ('google', 'azure'):
+            try:
+                t = upload_times(src, d, r['layout'])
+                best[src] = max(t[x] for x in ALL).strftime('%Y-%m-%dT%H:%M') if all(x in t for x in ALL) else 'incomplete'
+            except Exception as e:
+                best[src] = f'error {type(e).__name__}'
+        # a time before dissemination starts (05:45 UTC on the run's date) is impossible for a real upload: ignore it
+        floor = dt.datetime.combine(d, dt.time(5, 45), dt.timezone.utc)
+        times = [t for v in best.values() if v[:2] == '20' and (t := dt.datetime.fromisoformat(v + '+00:00')) >= floor]
+        ok = bool(times) and min(times) <= iss
+        res.append((r['date'], iss.strftime('%H:%M'), best['aws'], best['google'], best['azure'], ok))
+        print(f"E {r['date']}: issue {iss:%H:%M} UTC | aws {best['aws'][11:]} | google {best['google'][11:] if best['google'][:2]=='20' else best['google']} "
+              f"| azure {best['azure'][11:] if best['azure'][:2]=='20' else best['azure']} | {'public in time' if ok else 'LATE everywhere'}", flush=True)
+    with open(os.path.join(OUT, 'availability.csv'), 'w') as f:
+        f.write('date,issue_utc,aws_last_upload,google_last_upload,azure_last_upload,public_by_issue\n')
+        f.writelines(','.join(map(str, x)) + '\n' for x in res)
+    print(f'E: {sum(x[5] for x in res)} of {len(res)} were on another copy by the issue time; '
+          f'{sum(not x[5] for x in res)} late on every copy: {[x[0] for x in res if not x[5]]}')
+
+
 if __name__ == '__main__':
     which = sys.argv[1] if len(sys.argv) > 1 else 'ABCD'
     if 'A' in which: part_a()
     if 'B' in which: part_b()
     if 'C' in which: part_c()
     if 'D' in which: part_d()
+    if 'E' in which: part_e()
