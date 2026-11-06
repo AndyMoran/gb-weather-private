@@ -1,0 +1,136 @@
+"""
+National weather inputs for one target day (Brief 4, Section 3: "The splice, defined" and "When a run is missing or
+late"). This is the processing frozen and hashed before any weather forecast is made.
+
+Sources, as xarray datasets on the 0.25 deg GB box (latitude 61..49, longitude -9..2.5):
+  ERA5 (CDS NetCDF)  dims (valid_time, latitude, longitude); t2m K, u10 and v10 m/s, ssrd J/m2 accumulated over the
+                     hour ENDING at valid_time
+  ECMWF run          the collector's cropped file: dims (step, latitude, longitude); t2m K, u10, v10, ssrd J/m2
+                     accumulated from the start of the run; coordinate `time` is the run time (00:00 UTC)
+
+Each is first reduced to Great Britain with the fixed weights (weights.nc): temperature and wind speed by population,
+solar radiation by solar capacity. Wind speed is computed from u and v at each grid point and time, before weighting.
+A source then becomes two series:
+  points     instantaneous temperature (deg C) and wind speed (m/s) at the source's own times
+  intervals  mean solar radiation (W/m2) over each source interval: ERA5's hour (the hour's total / 3,600 s), or the
+             ECMWF interval between consecutive steps (the difference of the accumulations / the seconds between)
+
+For target day D, every half-hour of the context and the horizon takes its value at the half-hour's MIDPOINT:
+temperature and wind by linear interpolation between the assembled points, solar radiation from the interval that
+contains the midpoint. Points are assembled per UTC day:
+  - UTC days up to and including D-11: ERA5;
+  - each UTC day X from D-10 to D-1: the 00:00 UTC run of X, steps 0 to 21 (its own day), or, if that run is missing
+    or (for X = D-1) was not public at the issue time, the run of X-1, steps 24 to 45;
+  - UTC day D and the first instant of D+1 (the horizon's remainder): the same run that gave day D-1, steps 24 to 48
+    (or 48 to 72 from the run of D-2). So the whole horizon, from the cut-off to the end of D, comes from one run.
+ERA5 never fills an ECMWF day. Interpolation runs across the seam at 00:00 UTC on D-10.
+"""
+import numpy as np, pandas as pd, xarray as xr
+
+SPLICE_DAYS = 10
+DAY = pd.Timedelta(days=1)
+
+
+class Dropped(Exception):
+    """The day cannot be built under the rules: it is dropped from every confirmatory analysis."""
+
+
+def load_weights(path):
+    w = xr.open_dataset(path)
+    return _rounded(w['w_pop']), _rounded(w['w_pv'])
+
+
+def _rounded(x):
+    return x.assign_coords(latitude=np.round(x.latitude.values, 2), longitude=np.round(x.longitude.values, 2))
+
+
+def _weighted(field, w):
+    f, ww = xr.align(_rounded(field), w, join='exact')       # the grids must be identical, point for point
+    return (f * ww).sum(('latitude', 'longitude')).values
+
+
+def era5_national(ds, w_pop, w_pv):
+    tc = 'valid_time' if 'valid_time' in ds.dims else 'time'
+    t = pd.DatetimeIndex(ds[tc].values).tz_localize('UTC')
+    points = pd.DataFrame({'t2m': _weighted(ds['t2m'], w_pop) - 273.15,
+                           'wind': _weighted(np.hypot(ds['u10'], ds['v10']), w_pop)}, index=t)
+    intervals = pd.DataFrame({'start': t - pd.Timedelta(hours=1), 'end': t,
+                              'solar': _weighted(ds['ssrd'], w_pv) / 3600.0})
+    return points.sort_index(), intervals.sort_values('end').reset_index(drop=True)
+
+
+def ecmwf_national(ds, w_pop, w_pv):
+    run = pd.Timestamp(np.asarray(ds['time'].values).ravel()[0]).tz_localize('UTC')
+    steps = pd.to_timedelta(ds['step'].values)
+    order = np.argsort(steps); steps = steps[order]
+    vt = run + steps
+    temp = _weighted(ds['t2m'], w_pop)[order] - 273.15
+    wind = _weighted(np.hypot(ds['u10'], ds['v10']), w_pop)[order]
+    acc = _weighted(ds['ssrd'], w_pv)[order]                  # J/m2 since the start of the run
+    points = pd.DataFrame({'t2m': temp, 'wind': wind, 'step_h': steps / pd.Timedelta(hours=1)}, index=vt)
+    dt = np.diff(steps / pd.Timedelta(seconds=1))
+    intervals = pd.DataFrame({'start': vt[:-1], 'end': vt[1:], 'solar': np.diff(acc) / dt,
+                              'step_h': (steps / pd.Timedelta(hours=1))[1:]})
+    return run, points, intervals
+
+
+def _day(ts):
+    return pd.Timestamp(ts.date())
+
+
+def assemble(target_day, periods, era5, runs, late=()):
+    """National weather for every half-hour period of one forecast.
+
+    target_day  the UK date D
+    periods     UTC start times of the context and horizon half-hours (the demand study's periods), in order
+    era5        (points, intervals) from era5_national, covering at least the context's ERA5 days
+    runs        {UTC run date (Timestamp, midnight): (points, intervals) from ecmwf_national}
+    late        run dates whose files were not public before the issue time (counted as missing for D)
+    Returns a DataFrame indexed by period start: t2m, wind, solar, source; and the run used for the horizon.
+    """
+    D = pd.Timestamp(target_day).normalize().tz_localize(None)
+    late = {pd.Timestamp(x).normalize() for x in late}
+    have = lambda r: r in runs and r not in late
+    utc0 = lambda x: pd.Timestamp(x).tz_localize('UTC')
+
+    pts, ivs, src_of_day = [], [], {}
+    e_pts, e_ivs = era5
+    seam = utc0(D - SPLICE_DAYS * DAY)
+    pts.append(e_pts[e_pts.index < seam]); ivs.append(e_ivs[e_ivs['end'] <= seam])
+
+    def take(run, lo, hi, last_point=False):
+        p, i = runs[run]
+        pp = p[(p.index >= lo) & ((p.index <= hi) if last_point else (p.index < hi))]
+        ii = i[(i['start'] >= lo) & (i['end'] <= hi)]
+        return pp, ii
+
+    for k in range(SPLICE_DAYS, 0, -1):                       # UTC days D-10 .. D-1
+        X = D - k * DAY
+        if have(X): r = X
+        elif have(X - DAY): r = X - DAY
+        else: raise Dropped(f'{D:%Y-%m-%d}: no run for history day {X:%Y-%m-%d} or the day before')
+        p, i = take(r, utc0(X), utc0(X + DAY))
+        pts.append(p); ivs.append(i); src_of_day[X] = r
+    rD = src_of_day[D - DAY]                                  # the run that gave D-1 gives the whole horizon
+    p, i = take(rD, utc0(D), utc0(D + DAY), last_point=True)
+    pts.append(p); ivs.append(i); src_of_day[D] = rD
+
+    P = pd.concat(pts).sort_index(); I = pd.concat(ivs).sort_values('start').reset_index(drop=True)
+    if P.index.has_duplicates: raise ValueError('duplicate point times in the assembled series')
+    mids = pd.DatetimeIndex(periods) + pd.Timedelta(minutes=15)
+    if mids[0] < P.index[0] or mids[-1] > P.index[-1]:
+        raise Dropped(f'{D:%Y-%m-%d}: weather points do not span the periods ({P.index[0]} .. {P.index[-1]})')
+    x = P.index.asi8; m = mids.asi8
+    out = pd.DataFrame({'t2m': np.interp(m, x, P['t2m'].to_numpy()), 'wind': np.interp(m, x, P['wind'].to_numpy())},
+                       index=pd.DatetimeIndex(periods))
+    st = pd.DatetimeIndex(I['start']).asi8; en = pd.DatetimeIndex(I['end']).asi8   # same units as the midpoints
+    k = np.searchsorted(st, m, side='right') - 1
+    ok = (k >= 0) & (m < en[np.clip(k, 0, None)])
+    if not ok.all(): raise Dropped(f'{D:%Y-%m-%d}: {int((~ok).sum())} half-hours have no solar interval')
+    if (st[1:] < en[:-1]).any():
+        raise ValueError('overlapping solar intervals in the assembled series')
+    out['solar'] = I['solar'].to_numpy()[k]
+    days = mids.tz_convert('UTC').tz_localize(None).normalize()
+    out['source'] = ['era5' if d < D - SPLICE_DAYS * DAY else f"ifs {src_of_day[min(d, D)]:%Y-%m-%d}"
+                     for d in days]
+    return out, rD

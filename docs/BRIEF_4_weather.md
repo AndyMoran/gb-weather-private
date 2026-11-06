@@ -71,8 +71,8 @@ Searched 5 November 2026, on arXiv and Google Scholar, for "time series foundati
 
 1. **UTC days, then one conversion.** Weather is assembled hour by hour in UTC, then converted to UK half-hours by one routine. A 23- or 25-hour UK day then needs no special case.
 2. **Which source.** UTC days up to and including D−11 come from ERA5. The ten UTC days D−10 to D−1 come from ECMWF: each day X from the 00:00 UTC run of X, steps 0 to 24. History is used only up to the 08:30 cut-off.
-3. **One run where history meets the target.** Day D−1's history and the target day D both come from the 00:00 UTC run of D−1: steps 0 to 9 for the history, 21 to 48 for the target.
-4. **Interpolation.** Wind speed is computed from its two components at each source time. Temperature and wind speed are interpolated linearly in time between each source's own times (hourly for ERA5, 3-hourly for ECMWF), including across the seam at 00:00 UTC on D−10. Solar radiation becomes mean W/m² over each source interval (ERA5: the hour's total ÷ 3,600 s; ECMWF: the difference between steps ÷ 10,800 s); a half-hour takes the mean of the interval that contains it.
+3. **One run for the end of the history and the whole horizon.** UTC day D−1 and the target day D both come from the 00:00 UTC run of D−1: the history up to the 08:30 cut-off, then the whole horizon, from the cut-off to the end of D (steps 0 to 48). On a fallback day, both come from the run of D−2 (steps 24 to 72).
+4. **Interpolation.** Each half-hour takes its value at its midpoint. Wind speed is computed from its two components at each grid point and source time, before weighting. Temperature and wind speed are interpolated linearly in time between each source's own times (hourly for ERA5, 3-hourly for ECMWF), including across the seam at 00:00 UTC on D−10. Solar radiation becomes mean W/m² over each source interval (ERA5: the hour's total ÷ 3,600 s; ECMWF: the difference between steps ÷ 10,800 s); a half-hour takes the mean of the interval that contains it.
 5. **The regression's training** uses the same rule relative to D: training days to D−11 from ERA5, D−10 to D−2 from the ECMWF runs.
 
 **When a run is missing or late.** Fixed now, applied identically in both windows, and every case listed in the results with its reason:
@@ -284,7 +284,7 @@ The synthetic errors show that each model uses the weather. They do not predict 
 
 1. **Download ERA5** from January 2023 (running since 6 November, newest month first), and run the three remaining agreement checks against Google's copy.
 2. **Check Virani et al. (2609.06656)** on arxiv.org, and cross-check a few archive runs against Open-Meteo's Single Runs API, allowing for resolution.
-3. **Run the weather pipeline end to end on synthetic data:** the TimesFM test as specified in Section 4, then publish the result to the public repository.
+3. **Run the weather pipeline end to end on synthetic data** (`weather/synth_test.py`): the pipeline checks, then the TimesFM test as specified in Section 4, from committed and pushed code; publish the result to the public repository.
 4. **Freeze the weather processing** and start the daily push of national weather inputs.
 5. **Estimate the noise for the power checks,** then write and freeze the analysis plan, with both power checks and every gate check run on the real inputs with a stand-in forecaster, before any prospective error is computed.
 
