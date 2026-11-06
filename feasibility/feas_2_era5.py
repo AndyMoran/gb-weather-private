@@ -3,8 +3,8 @@ Feasibility check 2: ERA5 for Great Britain (Brief 4, Section 3).
 
   A  One month (January 2024) of hourly 2 m temperature, 10 m wind (u, v) and surface solar radiation over the GB box:
      confirms the request works, and times the queue, so the full download can be planned.
-  B  Latency: requests each of the last ten days separately, and reports which are available. That fixes how many
-     recent context days must come from the ECMWF runs' first hours instead (the splice rule).
+  B  Latency: reads the dataset's catalogue entry for the latest hour ERA5 covers (no download job). That tells how
+     many recent context days usually come from the ECMWF runs' first hours instead (the splice rule).
 
 The Copernicus key is read from ~/.cdsapirc, as cdsapi does by default; it never appears in this script.
 Outputs go to ~/gb-weather-data/era5/, outside every repository. Run in any environment with cdsapi:
@@ -60,13 +60,26 @@ def part_a():
 
 
 def part_b():
-    today = dt.date.today()
-    for k in range(10, 0, -1):
-        d = today - dt.timedelta(days=k); f = os.path.join(OUT, f'latency_{d:%Y%m%d}.nc')
-        try:
-            request([d], f); print(f'B {d}: available')
-        except Exception as e:
-            print(f'B {d}: not available ({str(e)[:80]})')
+    """Latency, without download jobs. The first version asked for each of the last ten days in turn; a request for a
+    day not yet published is an invalid request, which the CDS protection measures (October 2026) can penalise, and
+    the jobs sat in the queue for hours. Instead read the dataset's catalogue entry: one plain GET, no key, no queue.
+    Its temporal extent ends at the latest hour ERA5 (with ERA5T) covers."""
+    import json, requests
+    url = 'https://cds.climate.copernicus.eu/api/catalogue/v1/collections/reanalysis-era5-single-levels'
+    try:
+        r = requests.get(url, timeout=60); r.raise_for_status(); j = r.json()
+    except Exception as e:
+        print(f'B: could not read the catalogue ({e}); check the date on the dataset page instead'); return
+    ext = j.get('extent', {}).get('temporal', {}).get('interval')
+    print(f'B: temporal extent {ext}')
+    for k in ('updated', 'update_frequency', 'published'):
+        if k in j: print(f'   {k}: {j[k]}')
+    try:
+        end = dt.datetime.fromisoformat(str(ext[0][1]).replace('Z', '+00:00'))
+        lag = dt.datetime.now(dt.timezone.utc) - end
+        print(f'B: ERA5 ends {end:%Y-%m-%d %H:%M} UTC, {lag.total_seconds() / 86400:.1f} days before now')
+    except Exception:
+        print('B: could not parse the end date; the raw entry is above')
 
 
 if __name__ == '__main__':
