@@ -31,37 +31,66 @@ sys.path.insert(0, os.path.join(os.getcwd(), 'prospective', 'weather'))
 
 
 def list_keys(prefix):
-    keys, token = [], None
+    """Every object under the prefix, as {key: LastModified (UTC datetime)}."""
+    keys, token = {}, None
     while True:
         q = {'list-type': '2', 'prefix': prefix}
         if token: q['continuation-token'] = token
         r = requests.get(BUCKET, params=q, timeout=60); r.raise_for_status()
         root = ET.fromstring(r.content); ns = {'s': root.tag.split('}')[0].strip('{')}
-        keys += [k.text for k in root.findall('s:Contents/s:Key', ns)]
+        for c in root.findall('s:Contents', ns):
+            keys[c.findtext('s:Key', namespaces=ns)] = dt.datetime.fromisoformat(
+                c.findtext('s:LastModified', namespaces=ns).replace('Z', '+00:00'))
         if root.findtext('s:IsTruncated', namespaces=ns) != 'true': return keys
         token = root.findtext('s:NextContinuationToken', namespaces=ns)
 
 
+ALL = list(range(0, 49, 3))      # history splice (steps 0-24) and the target day (21-48)
+
+
+def issue_utc(run_date):
+    """09:30 UK time on the run's date (D-1), in UTC: 09:30 UTC in winter, 08:30 UTC in summer time."""
+    from zoneinfo import ZoneInfo
+    return dt.datetime.combine(run_date, dt.time(9, 30), ZoneInfo('Europe/London')).astimezone(dt.timezone.utc)
+
+
 def part_a():
+    """Coverage of steps 0-48 for every run, and when each run's files reached the bucket. LastModified is the upload
+    to this copy: the run cannot have been public here before it. A later re-upload would only make a day look late,
+    never early, so the check is conservative."""
     first = list_keys(f'{START:%Y%m%d}/00z/')
-    print('layout on the first day (sample keys):', first[:5] or 'NOTHING FOUND')
+    print('layout on the first day (sample keys):', list(first)[:3] or 'NOTHING FOUND')
     rows, d = [], START
     while d <= END:
         # ECMWF added the ifs/ level to the path when AIFS joined the bucket; earlier runs sit one level up.
         for layout in ('ifs/0p25/oper/', '0p25/oper/'):
             keys = list_keys(f'{d:%Y%m%d}/00z/{layout}')
             if keys: break
-        steps = {int(m.group(1)) for k in keys if (m := re.search(r'-(\d+)h-oper-fc\.grib2$', k))}
-        missing = [s for s in NEED if s not in steps]
-        rows.append((d.isoformat(), layout if keys else '', len(keys), ' '.join(map(str, missing))))
-        if d.day == 1 or (rows[-2][1] != rows[-1][1] if len(rows) > 1 else False):
-            print(d, layout if keys else 'NO LAYOUT', 'files', len(keys), 'missing steps', missing or 'none', flush=True)
+        got = {int(m.group(1)): t for k, t in keys.items() if (m := re.search(r'-(\d+)h-oper-fc\.grib2$', k))}
+        missing = [x for x in ALL if x not in got]
+        last = max((got[x] for x in ALL if x in got), default=None)
+        iss = issue_utc(d)
+        late = last is not None and last > iss
+        rows.append((d.isoformat(), layout if keys else '', len(keys), ' '.join(map(str, missing)),
+                     last.strftime('%Y-%m-%dT%H:%M') if last else '', iss.strftime('%H:%M'), late))
+        if d.day == 1 or rows[-1][1] != (rows[-2][1] if len(rows) > 1 else None):
+            print(d, layout if keys else 'NO LAYOUT', 'files', len(keys), 'missing steps', missing or 'none',
+                  f'| steps 0-48 uploaded by {rows[-1][4]} UTC, issue {rows[-1][5]} UTC', flush=True)
         d += dt.timedelta(days=1)
     with open(os.path.join(OUT, 'coverage.csv'), 'w') as f:
-        f.write('date,layout,files,missing_steps\n'); f.writelines(f'{a},{b},{c},{e}\n' for a, b, c, e in rows)
+        f.write('date,layout,files,missing_steps_0_48,last_upload_utc,issue_utc,uploaded_after_issue\n')
+        f.writelines(','.join(map(str, r)) + '\n' for r in rows)
     bad = [r for r in rows if r[3] or r[2] == 0]
-    print(f'A: {len(rows)} days checked; {len(bad)} with the run or a needed step missing')
-    for r in bad[:30]: print('   ', r)
+    late = [r for r in rows if r[6]]
+    print(f'A: {len(rows)} days checked; {len(bad)} with the run or a step 0-48 missing; '
+          f'{len(late)} uploaded after the 09:30 UK issue time')
+    for r in bad[:30]: print('    missing', r)
+    for r in late[:40]: print('    late', r[0], 'uploaded', r[4], 'issue', r[5])
+    if rows:
+        import statistics
+        lead = [(issue_utc(dt.date.fromisoformat(r[0])) - dt.datetime.fromisoformat(r[4] + '+00:00')).total_seconds() / 3600
+                for r in rows if r[4]]
+        print(f'A: margin between upload and issue time, hours: min {min(lead):.1f}; median {statistics.median(lead):.1f}')
 
 
 class Missing(Exception):
