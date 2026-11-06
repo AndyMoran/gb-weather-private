@@ -10,6 +10,8 @@ Feasibility check 1: ECMWF's open-data archive on AWS (Brief 4, Section 12).
   E  Availability: for runs whose AWS copy arrived after 09:30 UK time on D-1, the upload times on Google's and
      Azure's copies. A run was public at the issue time if any copy had every step 0-48 by then. Writes
      availability.csv.
+  F  Fallback: for each run released after the issue time, the previous day's run has steps 45-72 and was public
+     before the issue time.
   D  Parameters: for every day, which of the four variables the run's index lists (steps 24 and 48); finds when
      solar radiation first appears. Writes params.csv.
 
@@ -321,6 +323,35 @@ def part_e():
           f'{sum(not x[5] for x in res)} late on every copy: {[x[0] for x in res if not x[5]]}')
 
 
+def part_f():
+    """The fallback for runs released after the issue time (availability.csv from part E): target day D takes the
+    00 UTC run of D-2, steps 45-72. Check every such D-2 run has those steps and was public on some copy before
+    the issue time on D-1."""
+    import csv
+    late = [r['date'] for r in csv.DictReader(open(os.path.join(OUT, 'availability.csv'))) if r['public_by_issue'] == 'False']
+    need = list(range(45, 73, 3))
+    print(f'F: {len(late)} runs released after the issue time; checking the fallback run (one day earlier) for each')
+    bad = []
+    for ds in late:
+        r1 = dt.date.fromisoformat(ds); r2 = r1 - dt.timedelta(days=1); iss = issue_utc(r1)   # issue on D-1 = r1
+        for layout in ('ifs/0p25/oper/', '0p25/oper/'):
+            keys = list_keys(f'{r2:%Y%m%d}/00z/{layout}')
+            if keys: break
+        got = {int(m.group(1)): t for k, t in keys.items() if (m := re.search(r'-(\d+)h-oper-fc\.grib2$', k))}
+        missing = [x for x in need if x not in got]
+        last = max((got[x] for x in need if x in got), default=None)
+        ok_time = last is not None and last <= iss
+        if not ok_time and not missing:                     # AWS late (re-upload?): look at the other copies
+            for src in ('google', 'azure'):
+                try:
+                    t = upload_times(src, r2, layout)
+                    if all(x in t for x in need) and max(t[x] for x in need) <= iss: ok_time = True; break
+                except Exception: pass
+        if missing or not ok_time: bad.append((ds, str(r2), missing, last))
+    print(f'F: {len(late) - len(bad)} of {len(late)} fallback runs complete (steps 45-72) and public before the issue time')
+    for b in bad: print('    PROBLEM', b)
+
+
 if __name__ == '__main__':
     which = sys.argv[1] if len(sys.argv) > 1 else 'ABCD'
     if 'A' in which: part_a()
@@ -328,3 +359,4 @@ if __name__ == '__main__':
     if 'C' in which: part_c()
     if 'D' in which: part_d()
     if 'E' in which: part_e()
+    if 'F' in which: part_f()
