@@ -2,7 +2,7 @@
 
 Zero-shot forecasting models and a simple regression, given the same day-ahead weather forecasts, against NESO's forecast of GB electricity demand
 
-Draft for agreement · revision 10 · 6 November 2026 · Andy Moran (Heaviside Analytics)
+Agreed · revision 10 · 6 November 2026 · Andy Moran (Heaviside Analytics)
 
 *Revision 10 adds what the archive showed about release times: through summer time 2025, ECMWF released the 00:00 UTC run after the 09:30 issue, so on 186 days the target day takes the previous day's run (decision 12). Revision 9 writes decisions 7 to 11 as rules, after review: the splice and its seams, what happens when a run is missing or late, when a source may be switched, what counts as two ERA5 copies agreeing, and the threshold that would change TimesFM's mode. Nothing is left to be decided after a test. Revision 8 records the feasibility check (Section 12) and the changes it forces: the backtest starts on 6 March 2024, the first run with solar radiation; the last ten days of every context come from ECMWF's runs, in the backtest as in the prospective window; ECMWF's Google copy is the primary source; TimesFM's regression-first mode is proposed; and the weather study gets its own software environment. Revision 7 corrects the prospective window's bank holidays, sets one study-wide error rate for the confirmatory tests, adds a temperature-by-wind term to the regression, and states that no real weather-forecast error is computed before the freeze. Revision 6 recorded the decisions on openness and inputs. Revision 5 rewrote revision 4 for plain style, changing no decision. Revisions 2 to 4 answered three reviews; the main changes were a confirmatory test for the main question, reanalysis for weather history, ECMWF's own archive as the weather source, and a scale-free measure for the time-of-day tests.*
 
@@ -235,7 +235,7 @@ Taken 5 November 2026:
 5. **TimesFM's XReg mode:** chosen after the feasibility check, before any weather forecast, with its reason stated.
 6. **Licences:** none outstanding. ECMWF's open data and ERA5 both allow commercial use with attribution. Open-Meteo only verifies the archive and never feeds the results.
 
-Proposed in revisions 8 and 9, for agreement, each as a fixed rule:
+Proposed in revisions 8 to 10 and agreed on 6 November 2026, each as a fixed rule:
 
 7. **Backtest start:** 6 March 2024, the first run with solar radiation; 970 days, inclusive, to 31 October 2026. February 2024 is excluded from every analysis (Section 3).
 8. **Splice:** a fixed ten days from ECMWF's runs, in every forecast and in the regression's training, with the seam, interpolation and missing-run rules in Section 3.
@@ -273,12 +273,11 @@ The synthetic errors show that each model uses the weather. They do not predict 
 
 **Still to do before the freeze:**
 
-1. **Agree this revision,** in particular decisions 7 to 12.
-2. **Download ERA5** from January 2023 (running since 6 November, newest month first), and run the three remaining agreement checks against Google's copy.
-3. **Propose the spatial weighting sources:** population by grid cell, and installed solar capacity by region.
-4. **Check Virani et al. (2609.06656)** on arxiv.org, and cross-check a few archive runs against Open-Meteo's Single Runs API, allowing for resolution.
-5. **Run the weather pipeline end to end on synthetic data:** the TimesFM test as specified in Section 4, then publish the result to the public repository.
-6. **Freeze the weather processing** and start the daily push of national weather inputs.
-7. **Estimate the noise for the power checks,** then write and freeze the analysis plan, with both power checks and every gate check run on the real inputs with a stand-in forecaster, before any prospective error is computed.
+1. **Download ERA5** from January 2023 (running since 6 November, newest month first), and run the three remaining agreement checks against Google's copy.
+2. **Propose the spatial weighting sources:** population by grid cell, and installed solar capacity by region.
+3. **Check Virani et al. (2609.06656)** on arxiv.org, and cross-check a few archive runs against Open-Meteo's Single Runs API, allowing for resolution.
+4. **Run the weather pipeline end to end on synthetic data:** the TimesFM test as specified in Section 4, then publish the result to the public repository.
+5. **Freeze the weather processing** and start the daily push of national weather inputs.
+6. **Estimate the noise for the power checks,** then write and freeze the analysis plan, with both power checks and every gate check run on the real inputs with a stand-in forecaster, before any prospective error is computed.
 
 **Sources,** read 5–6 November 2026: the four studies in Section 2; ECMWF's open data page and its 29 February 2024 announcement of the expanded open data; ECMWF's dissemination schedule; the ECMWF forum threads on 503 errors from the AWS bucket and on the Data Stores Service protection measures; the google-research/arco-era5 README; the Herbie documentation on ECMWF archive sources; Open-Meteo's Single Runs, Previous Runs and Historical Forecast API documentation; Mistral's Timestral announcement (15 October 2026); timecopilot-timestral on PyPI; the google-research/timesfm README; NESO's Embedded Wind and Solar Forecasts page. Rung 1's figures by block come from `results/attempt2/results.json` in the demand study's repository.
