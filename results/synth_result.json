@@ -1,0 +1,151 @@
+{
+ "started_utc": "2026-11-06T20:44:44+00:00",
+ "commit": "923192f69c179b1f59ec4f7397608311b3e11c8f",
+ "code": {
+  "national.py": "33e289045731fada12496dfee59176017db61230b547831411561ae0275014b3",
+  "synth_test.py": "a27a28d518c29ca8886caa95a0e7c46739d9ab6c09d9a43df31ea58a56c0192d"
+ },
+ "weights": "c3af7721b673386ef31285ff55deab71617bff774b7cb5c13e448dee543102be",
+ "seeds": [
+  20261106,
+  20261107,
+  20261108,
+  20261109,
+  20261110,
+  20261111,
+  20261112,
+  20261113,
+  20261114,
+  20261115,
+  20261116,
+  20261117,
+  20261118,
+  20261119,
+  20261120,
+  20261121,
+  20261122,
+  20261123,
+  20261124,
+  20261125
+ ],
+ "origins": 30,
+ "scenarios": {
+  "winter_error": {
+   "first": "2025-12-01",
+   "t_mean": "5.0",
+   "t_diurnal": "2.0",
+   "solar_peak": "250",
+   "error": "True"
+  },
+  "shoulder_error": {
+   "first": "2025-10-05",
+   "t_mean": "11.5",
+   "t_diurnal": "4.0",
+   "solar_peak": "550",
+   "error": "True"
+  },
+  "winter_perfect": {
+   "first": "2025-12-01",
+   "t_mean": "5.0",
+   "t_diurnal": "2.0",
+   "solar_peak": "250",
+   "error": "False"
+  }
+ },
+ "forecast_error": {
+  "t2m": 1.0,
+  "wind": 1.5,
+  "solar_frac": 0.25
+ },
+ "pipeline": {
+  "P1": true,
+  "P2": true,
+  "P3_corrupted_fails": true,
+  "P4_horizon_run_and_fallback": true,
+  "P5_every_halfhour_filled": true,
+  "P5_horizon_lengths_seen": [
+   79,
+   81
+  ],
+  "history_mae_vs_truth": {
+   "t2m": 0.1939278677929156,
+   "wind": 0.27104868493119805,
+   "solar": 13.633462366359012
+  },
+  "pass": true
+ },
+ "timesfm_mode": {
+  "scores": {
+   "winter_error": {
+    "xreg + timesfm": {
+     "mean": 1126.5024735059867,
+     "p95": 2437.3380853075046,
+     "n": 600
+    },
+    "timesfm + xreg": {
+     "mean": 1409.4765523006956,
+     "p95": 3155.787771795407,
+     "n": 600
+    },
+    "no weather": {
+     "mean": 1533.8079221749808,
+     "p95": 3314.8000142907317,
+     "n": 600
+    }
+   },
+   "shoulder_error": {
+    "xreg + timesfm": {
+     "mean": 1294.318269190948,
+     "p95": 2703.690049864811,
+     "n": 600
+    },
+    "timesfm + xreg": {
+     "mean": 1356.5316208840638,
+     "p95": 2843.9406645620447,
+     "n": 600
+    },
+    "no weather": {
+     "mean": 1414.0852786998105,
+     "p95": 3168.715883155618,
+     "n": 600
+    }
+   },
+   "winter_perfect": {
+    "xreg + timesfm": {
+     "mean": 1097.8498769658725,
+     "p95": 2408.1067638665177,
+     "n": 600
+    },
+    "timesfm + xreg": {
+     "mean": 1407.3448094327468,
+     "p95": 3152.722691917346,
+     "n": 600
+    },
+    "no weather": {
+     "mean": 1533.8079221749808,
+     "p95": 3314.8000142907317,
+     "n": 600
+    }
+   }
+  },
+  "rule": "TimesFM first only if, in every scenario, mean error >= 5% lower and p95 daily error no higher",
+  "decision": "xreg + timesfm",
+  "xreg_args": {
+   "normalize_xreg_target_per_input": true,
+   "ridge": 0.0,
+   "force_on_cpu": true
+  },
+  "timesfm_settings": {
+   "max_context": 2688,
+   "max_horizon": 128,
+   "normalize_inputs": true,
+   "use_continuous_quantile_head": true,
+   "force_flip_invariance": true,
+   "infer_is_positive": true,
+   "fix_quantile_crossing": true,
+   "return_backcast": true,
+   "per_core_batch_size": 32
+  }
+ },
+ "finished_utc": "2026-11-06T21:29:35+00:00"
+}
