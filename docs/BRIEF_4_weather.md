@@ -85,7 +85,13 @@ Searched 5 November 2026, on arXiv and Google Scholar, for "time series foundati
 - **ERA5 day missing** from both copies: in the backtest, the freeze waits until the backfill is complete; in the prospective window, no inputs are pushed and Section 5's rule applies.
 - **Dropped days are dropped for every forecaster,** so all arms are compared on the same days.
 
-**From grid to Great Britain.** Over every 0.25° grid cell covering Great Britain, not a hand-picked list of places: temperature and wind weighted by population (ONS or WorldPop), solar radiation by installed solar capacity by region (DESNZ or NESO regional data). The sources are proposed in the feasibility check and fixed before the freeze, not tuned.
+**From grid to Great Britain.** Over every 0.25° grid cell covering Great Britain, not a hand-picked list of places. One fixed set of weights serves the whole study; it is built once, hashed, and never tuned.
+
+- **Temperature and wind: residential population.** UKCEH's *UK gridded population at 1 km resolution for 2021 based on Census 2021/2022 and Land Cover Map 2021* (Carnell, Tomlinson and Reis, 2025; doi:10.5285/7beefde9-c520-4ddf-897a-0167e8918595; Open Government Licence). It is built from the census and its total matches it, so it should beat global products such as WorldPop or GHS-POP for Great Britain. UKCEH's workday version was considered and rejected: heating and the evening peak follow where people live, and the workday version would shift weight toward city centres.
+- **Solar radiation: installed solar capacity by local authority,** at the end of 2025, from DESNZ's *Renewable electricity by local authority, 2014 to 2025* (Regional Renewable Statistics, 29 September 2026; Open Government Licence). The sheet, column and publication date are recorded in the lock. If the workbook has no capacity sheet by local authority, DESNZ's regional installed-capacity file is used instead, in MW, never generation in MWh.
+- **Onto the weather grid.** Each grid point is the centre of a 0.25° cell. Each 1 km population square goes to the cell containing its centre, after converting the centre from the British National Grid to latitude and longitude (EPSG:27700 to EPSG:4326, with pyproj; at 25 km cells, the conversion's metre-scale error cannot move a square between cells except at a cell's very edge). Each local authority's capacity is spread over its land area, and each cell receives the share of that area it contains. Spreading by area is crude: rooftop panels follow housing and solar farms follow fields. At 25 km it is acceptable, and it favours neither; it is stated as a limitation.
+- **Northern Ireland is removed.** The population data cover the UK, and Northern Ireland lies inside the weather box but outside GB demand. Each 1 km square is assigned to the nearest of the four countries in ONS's full-resolution country boundaries, and squares nearest Northern Ireland are dropped. A rule of "keep only squares inside Great Britain" would lose populated coastal squares whose centres fall just offshore. Northern Ireland's local authorities are dropped from the solar weights.
+- **Both weights are shares,** summing to one over Great Britain.
 
 **Checking the archive.** From 31 October 2026, the archive's runs, cropped as the collector crops them, must equal the collector's saved files value for value. That ties the backtest's source to an independently timestamped record. (Hashes of the cropped files would differ on metadata such as creation times, so the check compares values.)
 
@@ -198,6 +204,8 @@ As in rung 1, the official run is the first to pass every check. Before the free
 - **Freedom from leakage in the backtest.** As in rung 1; the prospective window answers it.
 - **Why NESO leads.** Whatever weather leaves unexplained belongs to NESO's modelling, data and judgement, which this study cannot separate.
 - **What better weather inputs could do.** One weather model, three variables, fixed weightings. Better choices might do better; this study tests honest, simple ones.
+- **Weather within Great Britain.** The national inputs are fixed-weight averages. They do not capture changes in where people live or where panels are over the study period, and they reduce the weather's pattern within Great Britain to one number per variable.
+- **Solar weights from a later year.** They use end-2025 capacity for every day, including 2024. That is later information about where panels are, not about how much they generated or about demand; the weights are shares, and change little from year to year. Weights for each year were considered and rejected as adding complexity for no material gain.
 - **Weather as known at the time, for history.** Reanalysis is cleaner than real-time observation. It flatters every forecaster equally.
 - **Higher resolution.** ECMWF moved its open data to 0.1° on 20 October 2026; the study keeps 0.25° throughout, to match the backtest.
 - **Fine-tuning.** Zero-shot, by design.
@@ -274,7 +282,7 @@ The synthetic errors show that each model uses the weather. They do not predict 
 **Still to do before the freeze:**
 
 1. **Download ERA5** from January 2023 (running since 6 November, newest month first), and run the three remaining agreement checks against Google's copy.
-2. **Propose the spatial weighting sources:** population by grid cell, and installed solar capacity by region.
+2. **Build the spatial weights** from the sources in Section 3 (agreed 6 November): confirm the DESNZ capacity sheet, record its name, column and date, and hash the weights.
 3. **Check Virani et al. (2609.06656)** on arxiv.org, and cross-check a few archive runs against Open-Meteo's Single Runs API, allowing for resolution.
 4. **Run the weather pipeline end to end on synthetic data:** the TimesFM test as specified in Section 4, then publish the result to the public repository.
 5. **Freeze the weather processing** and start the daily push of national weather inputs.
