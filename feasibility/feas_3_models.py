@@ -33,6 +33,8 @@ W = {'temperature': temp, 'wind': wind, 'solar': sun}
 
 
 def report(name, f_true, f_alt, f_spliced, f_none):
+    if any(np.shape(x) != (H,) for x in (f_true, f_alt, f_spliced, f_none)):
+        print(f'{name}: FAIL shapes {[np.shape(x) for x in (f_true, f_alt, f_spliced, f_none)]}, expected ({H},)'); return
     ok = (f_true.shape == (H,) and np.isfinite(f_true).all() and f_spliced.shape == (H,) and np.isfinite(f_spliced).all())
     moved = float(np.abs(f_true - f_alt).max())
     mae = lambda f: float(np.abs(f - truth).mean())
@@ -71,11 +73,17 @@ def run_timesfm():
     fwc = getattr(m, 'forecast_with_covariates', None)
     print('  forecast_with_covariates', inspect.signature(fwc) if fwc else 'NOT FOUND')
     if fwc is None: raise RuntimeError('this timesfm version has no forecast_with_covariates for 2.5')
+    shown = set()
     def f(w, mode='xreg + timesfm'):
         if not w:
-            _, q = m.forecast(horizon=H, inputs=[ctx]); return np.asarray(q)[0, :, 5]
+            # return_backcast=True puts the in-context fit before the forecast: keep the last H points
+            _, q = m.forecast(horizon=H, inputs=[ctx]); q = np.asarray(q)
+            if 'q' not in shown: print(f'  forecast() quantile output shape {q.shape}; taking the last {H}'); shown.add('q')
+            return q[0, -H:, 5]
         out = fwc(inputs=[ctx], dynamic_numerical_covariates={k: [x] for k, x in w.items()}, xreg_mode=mode)
-        return np.asarray(out[0][0]).ravel()[:H]
+        y = np.asarray(out[0][0]).ravel()
+        if 'x' not in shown: print(f'  forecast_with_covariates output length {y.size}; taking the last {H}'); shown.add('x')
+        return y[-H:]
     report('TimesFM 2.5 (xreg + timesfm)', f(W), f(alt(W)), f(spliced(W)), f(None))
     fm = lambda w: f(w, 'timesfm + xreg')
     report('TimesFM 2.5 (timesfm + xreg)', fm(W), fm(alt(W)), fm(spliced(W)), f(None))
