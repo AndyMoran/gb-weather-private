@@ -66,7 +66,7 @@ def cell_index(lat, lon):
 
 
 def population(tif, countries):
-    import geopandas as gpd, rasterio
+    import geopandas as gpd, pandas as pd, rasterio
     from pyproj import Transformer
     with rasterio.open(tif) as r:
         if r.crs is None or r.crs.to_epsg() != 27700: sys.exit(f'Population raster CRS is {r.crs}, expected EPSG:27700')
@@ -77,8 +77,20 @@ def population(tif, countries):
     xs, ys, pop = np.asarray(xs), np.asarray(ys), a[rows, cols]
     pts = gpd.GeoDataFrame({'pop': pop}, geometry=gpd.points_from_xy(xs, ys), crs=27700)
     c = countries.to_crs(27700); cc = code_col(c, 'CTRY')
-    near = gpd.sjoin_nearest(pts, c[[cc, 'geometry']], how='left', distance_col='dist_m')
-    near = near[~near.index.duplicated()]                     # a point equidistant from two countries: keep the first
+    # Nearest country, fast: split each country into its separate parts (mainland, each island), then
+    # (1) point-in-polygon for every square (indexed, prepared shapes): a square inside a country is nearest to it;
+    # (2) distance only for the few squares outside every outline (coastal squares whose centres are offshore).
+    # Measuring distance from every square to whole full-resolution countries took hours.
+    parts = c[[cc, 'geometry']].explode(index_parts=False).reset_index(drop=True)
+    inside = gpd.sjoin(pts, parts, how='left', predicate='within')
+    inside = inside[~inside.index.duplicated()]
+    country = inside[cc].copy(); dist = pd.Series(0.0, index=pts.index)
+    out = country.isna()
+    if out.any():
+        nb = gpd.sjoin_nearest(pts[out], parts, how='left', distance_col='dist_m')
+        nb = nb[~nb.index.duplicated()]                       # a point equidistant from two parts: keep the first
+        country[out] = nb[cc]; dist[out] = nb['dist_m']
+    near = pd.DataFrame({cc: country, 'dist_m': dist})
     ni = near[cc].str.startswith('N').to_numpy()
     lon, lat = Transformer.from_crs(27700, 4326, always_xy=True).transform(xs, ys)
     i, j, ok = cell_index(np.asarray(lat), np.asarray(lon))
@@ -88,7 +100,8 @@ def population(tif, countries):
     info = {'raster_resolution_m': list(res), 'squares_populated': int(len(pop)),
             'population_uk': float(pop.sum()), 'population_ni_dropped': float(pop[ni].sum()),
             'population_gb': float(pop[~ni].sum()), 'population_gb_outside_box': float(pop[~ni & ~ok].sum()),
-            'squares_assigned_offshore_m_max': float(near.loc[~ni, 'dist_m'].max())}
+            'squares_assigned_offshore_m_max': float(near.loc[~ni, 'dist_m'].max()),
+            'squares_outside_every_outline': int(out.sum())}
     return w / w.sum(), info
 
 
@@ -189,7 +202,7 @@ def main():
 
     print(f"population: UK {ipop['population_uk'] / 1e6:.2f} m; Northern Ireland dropped {ipop['population_ni_dropped'] / 1e6:.2f} m; "
           f"GB {ipop['population_gb'] / 1e6:.2f} m; GB outside the box {ipop['population_gb_outside_box']:.0f}; "
-          f"furthest GB square from land {ipop['squares_assigned_offshore_m_max']:.0f} m")
+          f"{ipop['squares_outside_every_outline']} squares outside every outline, the furthest GB one {ipop['squares_assigned_offshore_m_max']:.0f} m offshore")
     print(f"solar: sheet '{ipv['sheet']}', column '{ipv['solar_column']}'; GB {ipv['capacity_gb_mw']:.0f} MW in "
           f"{ipv['authorities']} authorities; placed {ipv['capacity_placed_mw']:.0f} MW; codes not in boundaries "
           f"{ipv['codes_not_in_boundaries'] or 'none'}")
