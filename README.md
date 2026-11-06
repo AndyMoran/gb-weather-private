@@ -8,6 +8,7 @@ The weather-processing code for Brief 4, the weather study that follows [gb-foun
 | --- | --- |
 | `docs/` | The brief (drafts until agreed) |
 | `feasibility/` | Checks of ECMWF's open-data archive, ERA5, and each model's weather inputs |
+| `weather/` | The weather processing itself, frozen and hashed before any weather forecast is made |
 
 Data are never committed: downloads go to `~/gb-weather-data/`. Credentials stay in `~/.cdsapirc`.
 
