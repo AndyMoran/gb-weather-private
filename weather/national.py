@@ -46,7 +46,8 @@ def _rounded(x):
 
 def _weighted(field, w):
     f, ww = xr.align(_rounded(field), w, join='exact')       # the grids must be identical, point for point
-    return (f * ww).sum(('latitude', 'longitude')).values
+    # A field missing anywhere the weights are positive gives NaN (skipna off), so a gap can never pass as a value.
+    return (f * ww).sum(('latitude', 'longitude'), skipna=False).values
 
 
 def era5_national(ds, w_pop, w_pv):
@@ -56,6 +57,8 @@ def era5_national(ds, w_pop, w_pv):
                            'wind': _weighted(np.hypot(ds['u10'], ds['v10']), w_pop)}, index=t)
     intervals = pd.DataFrame({'start': t - pd.Timedelta(hours=1), 'end': t,
                               'solar': _weighted(ds['ssrd'], w_pv) / 3600.0})
+    bad = points.isna().any(axis=1).to_numpy() | intervals['solar'].isna().to_numpy()
+    if bad.any(): raise Dropped(f'ERA5 missing values at {list(t[bad][:5])}')
     return points.sort_index(), intervals.sort_values('end').reset_index(drop=True)
 
 
@@ -66,7 +69,13 @@ def ecmwf_national(ds, w_pop, w_pv):
     vt = run + steps
     temp = _weighted(ds['t2m'], w_pop)[order] - 273.15
     wind = _weighted(np.hypot(ds['u10'], ds['v10']), w_pop)[order]
-    acc = _weighted(ds['ssrd'], w_pv)[order]                  # J/m2 since the start of the run
+    acc = _weighted(ds['ssrd'], w_pv)[order]   # J/m2 since the start of the run
+    # The accumulation at step 0 is zero by definition; some files omit it, which reads as missing. Set it to zero.
+    # Any other missing value stops the build.
+    if np.isnan(acc[0]) and steps[0] == pd.Timedelta(0): acc[0] = 0.0
+    for name, v in (('t2m', temp), ('wind', wind), ('ssrd', acc)):
+        if np.isnan(v).any(): raise Dropped(f'run {run:%Y-%m-%d}: {name} missing at steps '
+                                            f'{list((steps[np.isnan(v)] / pd.Timedelta(hours=1)).astype(int))}')
     points = pd.DataFrame({'t2m': temp, 'wind': wind, 'step_h': steps / pd.Timedelta(hours=1)}, index=vt)
     dt = np.diff(steps / pd.Timedelta(seconds=1))
     intervals = pd.DataFrame({'start': vt[:-1], 'end': vt[1:], 'solar': np.diff(acc) / dt,
@@ -120,10 +129,13 @@ def assemble(target_day, periods, era5, runs, late=()):
     mids = pd.DatetimeIndex(periods) + pd.Timedelta(minutes=15)
     if mids[0] < P.index[0] or mids[-1] > P.index[-1]:
         raise Dropped(f'{D:%Y-%m-%d}: weather points do not span the periods ({P.index[0]} .. {P.index[-1]})')
-    x = P.index.asi8; m = mids.asi8
+    # One time unit throughout: pandas may hold the periods in microseconds and file times in nanoseconds,
+    # and raw integers in different units never match.
+    ns = lambda ix: pd.DatetimeIndex(ix).as_unit('ns').asi8
+    x = ns(P.index); m = ns(mids)
     out = pd.DataFrame({'t2m': np.interp(m, x, P['t2m'].to_numpy()), 'wind': np.interp(m, x, P['wind'].to_numpy())},
                        index=pd.DatetimeIndex(periods))
-    st = pd.DatetimeIndex(I['start']).asi8; en = pd.DatetimeIndex(I['end']).asi8   # same units as the midpoints
+    st = ns(I['start']); en = ns(I['end'])
     k = np.searchsorted(st, m, side='right') - 1
     ok = (k >= 0) & (m < en[np.clip(k, 0, None)])
     if not ok.all(): raise Dropped(f'{D:%Y-%m-%d}: {int((~ok).sum())} half-hours have no solar interval')
