@@ -78,8 +78,10 @@ def ecmwf_national(ds, w_pop, w_pv):
                                             f'{list((steps[np.isnan(v)] / pd.Timedelta(hours=1)).astype(int))}')
     points = pd.DataFrame({'t2m': temp, 'wind': wind, 'step_h': steps / pd.Timedelta(hours=1)}, index=vt)
     dt = np.diff(steps / pd.Timedelta(seconds=1))
-    intervals = pd.DataFrame({'start': vt[:-1], 'end': vt[1:], 'solar': np.diff(acc) / dt,
-                              'step_h': (steps / pd.Timedelta(hours=1))[1:]})
+    # Differences of rounded running totals can dip a little below zero at night; irradiance cannot: set them to zero.
+    solar = np.diff(acc) / dt
+    intervals = pd.DataFrame({'start': vt[:-1], 'end': vt[1:], 'solar': np.clip(solar, 0, None),
+                              'step_h': (steps / pd.Timedelta(hours=1))[1:], 'solar_raw': solar})
     return run, points, intervals
 
 

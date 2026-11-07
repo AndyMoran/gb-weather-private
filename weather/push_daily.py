@@ -61,6 +61,8 @@ def build(D, public_root=PUBLIC, late_check=True):
         run_rec[f'{X:%Y-%m-%d}'] = rec
         if ds is not None:
             _, p, i = N.ecmwf_national(ds, w_pop, w_pv); runs[X] = (p, i)
+            neg = i['solar_raw'] < 0
+            rec['solar_intervals_set_to_zero'] = dict(count=int(neg.sum()), lowest_wm2=round(float(i['solar_raw'].min()), 3))
     issue = C.issue_time(D)
     late, avail = set(), None
     if late_check:
