@@ -249,7 +249,7 @@ Proposed in revisions 8 to 10 and agreed on 6 November 2026, each as a fixed rul
 8. **Splice:** a fixed ten days from ECMWF's runs, in every forecast and in the regression's training, with the seam, interpolation and missing-run rules in Section 3.
 9. **ECMWF source:** Google first; AWS only on technical failure; one source per run; logged.
 10. **ERA5 source:** the CDS; Google's copy only on technical failure, and only where the agreement check passes (Section 3).
-11. **TimesFM's mode:** regression first, unless the specified synthetic test meets the reversal threshold in every scenario (Section 4).
+11. **TimesFM's mode:** regression first, unless the specified synthetic test meets the reversal threshold in every scenario (Section 4). Settled on 6 November 2026: the test kept regression first (Section 12).
 12. **Late runs:** a run released after the issue time counts as missing; the target day falls back to the previous day's run, is flagged, and stays in the confirmatory analysis. The 186 fallback days of summer 2025 are reported without, descriptively. The prospective window is unaffected: release at 07:34 UTC leaves 56 minutes even after the clocks change on 28 March 2027.
 
 The Copernicus account is registered and working.
@@ -274,6 +274,7 @@ The Copernicus account is registered and working.
 | Steps 0–48, every run | Present in all 1,004 runs |
 | Release time against the 09:30 issue | ECMWF releases the 00:00 UTC run to all three copies at the same minute each day: 06:59 UTC to March 2024, 07:55 from April 2024, 08:34 from January 2025, 07:34 from November 2025. In winter that beats the 09:30 UTC issue every day. In summer time 2025 (issue 08:30 UTC) it did not: 186 days, 30 March to 1 October 2025, take the fallback run. Two other days (18 September 2024, 25 February 2025) look late on AWS and Google, which were re-uploaded; Azure had both before the issue, so they count as on time |
 | Fallback runs (00:00 UTC of D−2) for those 186 days | All 186 have steps 45–72 and were public before their issue time |
+| Synthetic end-to-end test (`weather/synth_test.py`, run 6 Nov 2026 from commit 923192f; `results/synth_result.json`) | Pipeline: all five checks pass (ERA5 and ECMWF history equal the truth; a run whose accumulation is not differenced is caught; the horizon comes from the run of D−1, or of D−2 when D−1 is late; every half-hour filled across the clock change). TimesFM's mode, mean daily error over 600 forecasts, regression first / TimesFM first / no weather: winter with forecast error 1,127 / 1,409 / 1,534 MW; shoulder with forecast error 1,294 / 1,357 / 1,414; winter with perfect weather 1,098 / 1,407 / 1,534. TimesFM first was worse in every scenario, at the mean and the 95th percentile. **Decision 11 settled: regression first** (`xreg + timesfm`) |
 | Spatial weights (`weather/make_weights.py`, 6 Nov 2026) | Population: UK 66.94 m, Northern Ireland 1.90 m dropped, GB 65.04 m on 706 cells; 2,447 coastal squares lie outside every outline, the furthest 658 m offshore. Solar: GB 21,352 MW in 350 authorities, all placed, on 740 cells; Barnsley and Sheffield recoded to ONS's 2025 codes; 164 MW "Unallocated (GB)" has no location and is not used. Largest cells: London, Manchester, Birmingham (population); Kent, Wiltshire, Cambridgeshire (solar). `weights.nc` SHA-256 c3af7721b673386ef31285ff55deab71617bff774b7cb5c13e448dee543102be; input hashes in `weights_meta.json` |
 | ERA5: Google's copy against the CDS, 3 Jan 2024 | Same grid, hours, units and solar convention; at most 0.0009 K, 0.0004 m/s, 35 J/m². Google's store is chunked one global hour at a time: a GB day takes about 2 minutes to read |
 | Bank holidays | The five prospective-window dates are in the hashed GOV.UK file |
@@ -284,7 +285,7 @@ The synthetic errors show that each model uses the weather. They do not predict 
 
 1. **Download ERA5** from January 2023 (running since 6 November, newest month first), and run the three remaining agreement checks against Google's copy.
 2. **Check Virani et al. (2609.06656)** on arxiv.org, and cross-check a few archive runs against Open-Meteo's Single Runs API, allowing for resolution.
-3. **Run the weather pipeline end to end on synthetic data** (`weather/synth_test.py`): the pipeline checks, then the TimesFM test as specified in Section 4, from committed and pushed code; publish the result to the public repository.
+3. **Publish the synthetic test's result** to the public repository (done privately on 6 November; the code stays private until the results note).
 4. **Freeze the weather processing** and start the daily push of national weather inputs.
 5. **Estimate the noise for the power checks,** then write and freeze the analysis plan, with both power checks and every gate check run on the real inputs with a stand-in forecaster, before any prospective error is computed.
 
