@@ -12,8 +12,10 @@ Why this shape:
   - The latest month is partial. Its file is named for its last day, and is fetched again (complete) on a later run.
 
 The key is read from ~/.cdsapirc by cdsapi; it never appears here. Files go to ~/gb-weather-data/era5/, outside every
-repository; a CSV log records each file's request ID, time and SHA-256, for the lock. Run in `wx`:
-    nohup python era5_download.py >> ~/gb-weather-data/era5/download.log 2>&1 &
+repository; a CSV log records each file's time and SHA-256, for the lock. One copy runs at a time (a lock file), so
+Task Scheduler can start it every hour: a start while a copy is running exits at once, and a start after a reboot
+resumes. Run in `wx`:
+    python era5_download.py >> ~/gb-weather-data/era5/download.log 2>&1
 """
 import calendar, datetime as dt, hashlib, os, sys, time, zipfile
 import requests
@@ -59,7 +61,20 @@ def months(last):
     return out                                              # newest first
 
 
+def single_instance():
+    """Hold an exclusive lock for the whole run, so an hourly scheduled start does nothing while a copy is running.
+    The lock is released by the operating system if the process dies, so a restart after a reboot is never blocked."""
+    import fcntl
+    f = open(os.path.join(OUT, '.download.lock'), 'w')
+    try:
+        fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        sys.exit(0)                                         # another copy is running: leave quietly
+    return f                                                # keep the file open to keep the lock
+
+
 def main():
+    lock = single_instance()                                # noqa: F841
     import cdsapi
     c = cdsapi.Client()
     last = latest_day()
