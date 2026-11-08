@@ -123,6 +123,12 @@ def gates(rec, models, reg, series, hol, era5_hh, mode, lock=None, built=None):
     # 3: the weather inputs used are the published ones (backtest: the built files' hashes, as recorded at build)
     if built is not None:
         g['3_inputs_are_the_published_ones'] = all(sha(os.path.join(BT, f)) == h for f, h in built['outputs'].items())
+    # 4: the archive matches the daily collection, value for value, for every collected run (since 31 October 2026)
+    if mode != 'synthetic':
+        g['4_archive_matches_collection'], info['4_runs_compared'] = archive_vs_collection()
+    # 6: backtest and daily inputs are one method: sample days rebuilt with the daily push code agree
+    if mode != 'synthetic':
+        g['6_backtest_equals_daily_push'], info['6_days'] = backtest_vs_push(rec)
     # 5: the no-weather forecasts are rung 1's, and rung 1's outturn is the outturn used here
     g['5_no_weather_are_rung1'] = all(np.array_equal(r['rung1_outturn'], r['y']) for r in rec.values() if 'rung1_outturn' in r)
     # 7: model outputs
@@ -159,6 +165,36 @@ def gates(rec, models, reg, series, hol, era5_hh, mode, lock=None, built=None):
         for name, (repo, rev) in M.REVISIONS.items():
             g[f'9_{name}_weights'] = sha(hf_hub_download(repo, 'model.safetensors', revision=rev)) == lock['weights_sha256'][name]
     return g, info
+
+
+def archive_vs_collection(perturb=False):
+    """Gate 4: each run the collector saved, fetched again from the archive, cropped the collector's way, compared."""
+    import tempfile, xarray as xr, archive as A
+    sys.path.insert(0, os.path.join(PUBLIC, 'prospective', 'weather')); import ecmwf_daily as E
+    data = os.path.join(PUBLIC, 'prospective', 'weather', 'data'); same, n = True, 0
+    for f in sorted(glob.glob(os.path.join(data, 'ifs_0p25_*_00z_gb.nc'))):
+        d = pd.Timestamp(os.path.basename(f)[9:17]).date()
+        with tempfile.TemporaryDirectory() as t:
+            g = os.path.join(t, 'a.grib2'); c = os.path.join(t, 'a.nc')
+            A.fetch(d, E.STEPS, E.PARAMS, g); E.crop_to_gb(g, c)
+            a, b = xr.open_dataset(f).load(), xr.open_dataset(c).load()
+        for v in a.data_vars:
+            x = a[v].values + (1.0 if perturb and n == 0 else 0.0)
+            same &= bool(np.array_equal(x, b[v].values, equal_nan=True))
+        n += 1
+    return bool(same and n > 0), n
+
+
+def backtest_vs_push(rec, perturb=False):
+    """Gate 6: rung 1's gate days that are built (else the first and last built days), rebuilt by the daily push."""
+    import push_daily as P
+    days = [pd.Timestamp(d) for d in GATE_DAYS if pd.Timestamp(d) in rec] or [min(rec), max(rec)]
+    ok = True
+    for D in days:
+        out, _ = P.build(D)
+        w = rec[D]['wx'][['t2m', 'wind', 'solar']].to_numpy() + (1.0 if perturb else 0.0)
+        ok &= len(out) == len(w) and bool(np.allclose(w, out[['t2m', 'wind', 'solar']].to_numpy(), atol=6e-5))
+    return bool(ok), len(days)
 
 
 # ------------------------------------------------------------------ statistics -----------------------------------------
@@ -328,6 +364,8 @@ def mode_dry(corrupt):
     class Off(RW.RegressionW):
         def forecast(self, *a): return super().forecast(*a) + 0.5
     res['8 (regression off by 0.5 MW)'] = not rerun(rec, '8_regression_independent', reg2=Off(series, hol))
+    res['4 (a collected value altered)'] = not archive_vs_collection(perturb=True)[0]
+    res['6 (a backtest input altered)'] = not backtest_vs_push(rec, perturb=True)[0]
     for k, v in res.items(): say(('PASS ' if v else 'FAIL ') + 'fails on corrupted input: ' + k)
     return all(G.values()) and all(res.values())
 
