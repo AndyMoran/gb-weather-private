@@ -2,7 +2,8 @@
 Build and publish the national weather inputs for one target day (Brief 4, Section 5, item 2; Section 10, option A).
 
 On D-1, after the 09:30 collection, this builds every half-hour of D's context and horizon with national.py, writes
-  weather_study/inputs/<D>.csv    the inputs exactly as the models receive them
+  weather_study/inputs/<D>.csv    the inputs exactly as the models receive them, and beside them the same inputs
+                                  before decision 13's factors (the unadjusted ERA5 days)
   weather_study/inputs/<D>.json   where each piece came from, every input's SHA-256, and the hashes of this code
   weather_study/inputs/manifest.csv
 in the public repository, pushes them, and confirms GitHub has them. A day counts only if its inputs reach GitHub
@@ -55,7 +56,7 @@ def build(D, public_root=PUBLIC, late_check=True):
     ctx, hor, h, i0 = periods_for(D)
     manifest = S.collector_manifest(public_root)
     runs, run_rec = {}, {}
-    for k in range(N.SPLICE_DAYS + 1, 0, -1):               # D-11 (a fallback for D-10) .. D-1
+    for k in range(N.FACTOR_WINDOW[0], 0, -1):              # D-70 .. D-1: decision 13's window, the splice, fallbacks
         X = D - k * N.DAY
         ds, rec = S.run(X, public_root, manifest)
         run_rec[f'{X:%Y-%m-%d}'] = rec
@@ -70,16 +71,20 @@ def build(D, public_root=PUBLIC, late_check=True):
         avail = dict(run=f'{D - N.DAY:%Y-%m-%d}', public_by_utc=t.isoformat() if t else None, copy=src,
                      issue_utc=issue.isoformat(), on_time=bool(t is not None and t <= issue))
         if not avail['on_time']: late.add(D - N.DAY)
-    first = (ctx[0] + pd.Timedelta(minutes=15)).floor('1h') - pd.Timedelta(hours=1)
+    first = min((ctx[0] + pd.Timedelta(minutes=15)).floor('1h') - pd.Timedelta(hours=1),
+                pd.Timestamp(D - N.FACTOR_WINDOW[0] * N.DAY).tz_localize('UTC'))
     last = pd.Timestamp(D - (N.SPLICE_DAYS) * N.DAY).tz_localize('UTC')
     e_ds, era5_rec = S.era5(first, last)
     era5 = N.era5_national(e_ds, w_pop, w_pv)
-    out, rD = N.assemble(D.date(), ctx.append(hor), era5, runs, late=late)
+    factors = N.history_factors(D.date(), era5, runs)
+    out, rD = N.assemble(D.date(), ctx.append(hor), era5, runs, late=late, factors=factors)
+    raw, _ = N.assemble(D.date(), ctx.append(hor), era5, runs, late=late)
+    for v in ('t2m', 'wind', 'solar'): out[v + '_raw'] = raw[v]
     out.insert(0, 'part', ['context'] * len(ctx) + ['horizon'] * len(hor))
     record = dict(target_day=f'{D:%Y-%m-%d}', issue_time_utc=issue.isoformat(),
                   input_cut_utc=C.input_end(D).isoformat(), horizon_steps=h, first_target_step=i0,
                   context_halfhours=len(ctx), horizon_run=f'{rD:%Y-%m-%d}', fallback=bool(rD != D - N.DAY),
-                  run_d_minus_1_availability=avail, runs=run_rec, era5_days=era5_rec,
+                  run_d_minus_1_availability=avail, history_factors=factors, runs=run_rec, era5_days=era5_rec,
                   weights_sha256=S.sha256(WEIGHTS),
                   code_sha256={f: S.sha256(os.path.join(HERE, f)) for f in CODE})
     return out, record
@@ -90,7 +95,8 @@ def write(out, record, folder):
     D = record['target_day']; p = os.path.join(folder, f'{D}.csv')
     t = out.copy(); t.index.name = 'period_start_utc'
     t.insert(1, 'period_start_uk', t.index.tz_convert('Europe/London').strftime('%Y-%m-%d %H:%M'))
-    t.rename(columns={'t2m': 't2m_c', 'wind': 'wind_ms', 'solar': 'solar_wm2'}).to_csv(
+    t.rename(columns={'t2m': 't2m_c', 'wind': 'wind_ms', 'solar': 'solar_wm2', 't2m_raw': 't2m_c_unadjusted',
+                      'wind_raw': 'wind_ms_unadjusted', 'solar_raw': 'solar_wm2_unadjusted'}).to_csv(
         p, float_format='%.4f', date_format='%Y-%m-%dT%H:%M:%SZ')
     record = dict(record, built_utc=dt.datetime.now(dt.timezone.utc).isoformat(timespec='seconds'),
                   csv=os.path.basename(p), csv_sha256=S.sha256(p), attribution=ATTRIBUTION)
@@ -178,7 +184,9 @@ def main():
 def self_test():
     """Synthetic sources in the real formats, built through every path: collector files checked against their manifest;
     a tampered collector file refused; ERA5 hours missing from the CDS files taken from Google's copy (mocked); the
-    run of D-1 late, so D falls back to D-2; the output equal to national.assemble's; the CSV read back exactly."""
+    run of D-1 late, so D falls back to D-2; the output equal to national.assemble's; the CSV read back exactly.
+    Decision 13: every run differs from ERA5 by a known offset and ratios, which the factors recover; a mismatch of
+    solar conventions is caught; only ERA5 days move, night solar stays zero; too few days leaves a variable alone."""
     import zipfile, xarray as xr
     sys.path.insert(0, HERE); import synth_test as T
     tmp = tempfile.mkdtemp(); pub = os.path.join(tmp, 'public'); data = os.path.join(pub, 'prospective', 'weather', 'data')
@@ -190,18 +198,20 @@ def self_test():
         xr.Dataset({'w_pop': w, 'w_pv': w}).to_netcdf(WEIGHTS)
     w_pop, w_pv = N.load_weights(WEIGHTS)
     D = pd.Timestamp('2025-12-10'); ctx, hor, h, i0 = periods_for(D)
-    t0 = (ctx[0] - 3 * N.DAY).normalize(); t1 = C.day_bounds(D)[1].normalize() + 4 * N.DAY
+    t0 = (D - (N.FACTOR_WINDOW[0] + 3) * N.DAY).tz_localize('UTC'); t1 = C.day_bounds(D)[1].normalize() + 4 * N.DAY
+    BIAS = dict(t2m=0.3, wind=0.9, solar=1.1)               # every run differs from ERA5 by these, at every step
     tr = T.Truth(T.SEEDS[0], T.SCENARIOS['winter_error'], t0, t1)
     rows = []
-    for k in range(N.SPLICE_DAYS + 1, 0, -1):               # collector files, with a manifest
+    for k in range(N.FACTOR_WINDOW[0], 0, -1):              # collector files, with a manifest
         X = (D - k * N.DAY); name = f'ifs_0p25_{X:%Y%m%d}_00z_gb.nc'
-        ds = T.run_ds(tr, X.tz_localize('UTC'), np.random.default_rng(k))
+        ds = T.run_ds(tr, X.tz_localize('UTC'))
+        ds = ds.assign(t2m=ds.t2m + BIAS['t2m'], u10=ds.u10 * BIAS['wind'], v10=ds.v10 * BIAS['wind'], ssrd=ds.ssrd * BIAS['solar'])
         ds.drop_vars('ssrd').merge(ds[['ssrd']].where(ds.step > pd.Timedelta(0))).to_netcdf(os.path.join(data, name))
         rows.append(dict(run_date=f'{X:%Y-%m-%d}', run_utc='00', resol='0p25', source='ecmwf', downloaded_utc='x',
                          file=name, sha256=S.sha256(os.path.join(data, name)), bytes=0, raw_sha256='', variables=''))
     with open(os.path.join(pub, 'prospective', 'weather', 'manifest.csv'), 'w', newline='') as f:
         wr = csv.DictWriter(f, fieldnames=list(rows[0])); wr.writeheader(); wr.writerows(rows)
-    first = (ctx[0] + pd.Timedelta(minutes=15)).floor('1h') - pd.Timedelta(hours=1)
+    first = pd.Timestamp(D - N.FACTOR_WINDOW[0] * N.DAY).tz_localize('UTC')
     last = pd.Timestamp(D - N.SPLICE_DAYS * N.DAY).tz_localize('UTC')
     full = T.era5_ds(tr, first, last)
     cut = pd.Timestamp(last.tz_localize(None)) - 2 * N.DAY  # the CDS files stop two days short; Google fills the rest
@@ -224,11 +234,41 @@ def self_test():
     out, rec = build(D, public_root=pub)
     era5 = N.era5_national(full, w_pop, w_pv)
     runs = {}
-    for k in range(N.SPLICE_DAYS + 1, 0, -1):
+    for k in range(N.FACTOR_WINDOW[0], 0, -1):
         X = D - k * N.DAY; _, p, i = N.ecmwf_national(xr.open_dataset(os.path.join(data, f'ifs_0p25_{X:%Y%m%d}_00z_gb.nc')), w_pop, w_pv)
         runs[X] = (p, i)
-    direct, _ = N.assemble(D.date(), ctx.append(hor), era5, runs)
-    res['W1 output equals national.assemble'] = bool(np.allclose(out[['t2m', 'wind', 'solar']], direct[['t2m', 'wind', 'solar']], atol=1e-9))
+    f = N.history_factors(D.date(), era5, runs)
+    direct, _ = N.assemble(D.date(), ctx.append(hor), era5, runs, factors=f)
+    raw, _ = N.assemble(D.date(), ctx.append(hor), era5, runs)
+    res['W1 output equals national.assemble, adjusted and unadjusted'] = bool(
+        np.allclose(out[['t2m', 'wind', 'solar']], direct[['t2m', 'wind', 'solar']], atol=1e-9)
+        and np.allclose(out[['t2m_raw', 'wind_raw', 'solar_raw']].to_numpy(), raw[['t2m', 'wind', 'solar']].to_numpy(), atol=1e-9))
+    fr = rec['history_factors']
+    res['W8 known offset and ratios recovered (+0.3 C, wind x0.9, solar x1.1)'] = bool(
+        abs(fr['t2m_add'] - BIAS['t2m']) < 1e-6 and abs(fr['wind_mult'] - BIAS['wind']) < 1e-6
+        and abs(fr['solar_mult'] - BIAS['solar']) < 1e-6 and not fr['flagged'] and fr['days_solar'] >= N.MIN_DAYS)
+    wrong = (era5[0], era5[1].assign(solar=era5[1]['solar'] / 3))      # ERA5 hourly totals divided by 10,800 s
+    fw = N.history_factors(D.date(), wrong, runs)
+    runs_unc = {X: (p, i.assign(solar=i['solar'] * 3)) for X, (p, i) in runs.items()}   # ECMWF 3 h means misread (x3)
+    fu = N.history_factors(D.date(), era5, runs_unc)
+    res['W9 a mismatch of solar conventions is caught (ratio far from 1.1)'] = bool(
+        abs(fw['solar_mult'] - BIAS['solar']) > 1 and abs(fu['solar_mult'] - BIAS['solar']) > 1)
+    # The two half-hours whose midpoints fall between the last ERA5 hour (23:00 on D-11) and the first ECMWF point
+    # (00:00 on D-10) are interpolated across the seam, so their shift is partial by design: excluded here.
+    seam = pd.Timestamp(D - N.SPLICE_DAYS * N.DAY).tz_localize('UTC')
+    e_rows = (out['source'] == 'era5') & (out.index + pd.Timedelta(minutes=15) <= seam - pd.Timedelta(hours=1))
+    day = out.loc[e_rows, 'solar_raw'] > N.DAYLIGHT_WM2
+    res['W10 only ERA5 days move; temperature +0.3, wind x0.9, daylight solar x1.1, night unchanged'] = bool(
+        np.allclose(out.loc[e_rows, 't2m'] - out.loc[e_rows, 't2m_raw'], BIAS['t2m'], atol=1e-9)
+        and np.allclose(out.loc[e_rows, 'wind'], out.loc[e_rows, 'wind_raw'] * BIAS['wind'], atol=1e-9)
+        and np.allclose(out.loc[e_rows, 'solar'][day], out.loc[e_rows, 'solar_raw'][day] * BIAS['solar'], atol=1e-9)
+        and np.allclose(out.loc[e_rows, 'solar'][~day], out.loc[e_rows, 'solar_raw'][~day], atol=1e-12)
+        and np.allclose(out.loc[out['source'] != 'era5', ['t2m', 'wind', 'solar']].to_numpy(),
+                        out.loc[out['source'] != 'era5', ['t2m_raw', 'wind_raw', 'solar_raw']].to_numpy()))
+    few = {X: v for X, v in runs.items() if X >= D - 30 * N.DAY}          # only 20 days of the window
+    ff = N.history_factors(D.date(), era5, few)
+    res['W11 fewer than 30 days: unadjusted and flagged'] = bool(
+        set(ff['flagged']) == {'temperature', 'wind', 'solar'} and ff['t2m_add'] == 0 and ff['wind_mult'] == 1 and ff['solar_mult'] == 1)
     res['W2 step-0 solar missing in the file is treated as zero'] = bool(np.isfinite(out['solar']).all())
     res['W3 ERA5 hours missing from CDS taken from Google'] = bool(len(arco_calls) >= 2 and any(v['copy'] != 'cds' for v in rec['era5_days'].values()))
     res['W4 every run from the collector, hash-checked'] = all(v['copy'] == 'collector' for v in rec['runs'].values())

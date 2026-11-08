@@ -24,6 +24,9 @@ contains the midpoint. Points are assembled per UTC day:
   - UTC day D and the first instant of D+1 (the horizon's remainder): the same run that gave day D-1, steps 24 to 48
     (or 48 to 72 from the run of D-2). So the whole horizon, from the cut-off to the end of D, comes from one run.
 ERA5 never fills an ECMWF day. Interpolation runs across the seam at 00:00 UTC on D-10.
+
+Decision 13: before assembly, the ERA5 days can be put on the runs' scale with history_factors (estimated from
+D-70 to D-11) and apply_factors. The daily inputs use it; the unadjusted inputs are published alongside.
 """
 import numpy as np, pandas as pd, xarray as xr
 
@@ -85,11 +88,66 @@ def ecmwf_national(ds, w_pop, w_pv):
     return run, points, intervals
 
 
+FACTOR_WINDOW = (70, 11)                                     # UTC days D-70 .. D-11
+MIN_DAYS = 30
+DAYLIGHT_WM2 = 10.0
+
+
+def history_factors(target_day, era5, runs, min_days=MIN_DAYS):
+    """Decision 13: factors that put ERA5 on the ECMWF runs' scale, from the UTC days D-70 to D-11 that both cover.
+    Each run's first day (steps 0 to 24) is compared with ERA5 at the same instants: temperature by the mean
+    difference (added), wind by the ratio of totals (multiplied), solar by the ratio of totals over ERA5-daylight
+    3-hour intervals (ERA5 3-hour mean above 10 W/m2; ECMWF 3-hour means from its accumulations, ERA5's from its
+    hourly totals). A variable with fewer than `min_days` days is left unadjusted and flagged. Uses no demand."""
+    D = pd.Timestamp(target_day).normalize().tz_localize(None)
+    ep, ei = era5
+    sol_end = pd.Series(ei['solar'].to_numpy(), index=pd.DatetimeIndex(ei['end']))
+    dT = nT = w_ifs = w_era = s_ifs = s_era = 0.0; days_tw = days_s = 0
+    for k in range(FACTOR_WINDOW[0], FACTOR_WINDOW[1] - 1, -1):
+        X = D - k * DAY
+        if X not in runs: continue
+        p, i = runs[X]
+        lo, hi = pd.Timestamp(X).tz_localize('UTC'), pd.Timestamp(X + DAY).tz_localize('UTC')
+        pp = p[(p.index >= lo) & (p.index <= hi)]
+        e = ep.reindex(pp.index)
+        if len(pp) and not e[['t2m', 'wind']].isna().any().any() and not pp[['t2m', 'wind']].isna().any().any():
+            dT += float((pp['t2m'] - e['t2m']).sum()); nT += len(pp)
+            w_ifs += float(pp['wind'].sum()); w_era += float(e['wind'].sum()); days_tw += 1
+        ii = i[(i['start'] >= lo) & (i['end'] <= hi)]
+        if len(ii) and not ii['solar'].isna().any():
+            es = np.array([sol_end[(sol_end.index > a) & (sol_end.index <= b)].mean()
+                           if ((sol_end.index > a) & (sol_end.index <= b)).sum() == round((b - a) / pd.Timedelta(hours=1))
+                           else np.nan for a, b in zip(ii['start'], ii['end'])])
+            if not np.isnan(es).any():
+                day = es > DAYLIGHT_WM2
+                s_ifs += float(ii['solar'].to_numpy()[day].sum()); s_era += float(es[day].sum()); days_s += 1
+    f = dict(window=f"{D - FACTOR_WINDOW[0] * DAY:%Y-%m-%d}..{D - FACTOR_WINDOW[1] * DAY:%Y-%m-%d}",
+             days_temperature_wind=days_tw, days_solar=days_s, min_days=min_days, flagged=[])
+    if days_tw >= min_days and nT and w_era > 0:
+        f['t2m_add'] = dT / nT; f['wind_mult'] = w_ifs / w_era
+    else:
+        f['t2m_add'], f['wind_mult'] = 0.0, 1.0; f['flagged'] += ['temperature', 'wind']
+    if days_s >= min_days and s_era > 0:
+        f['solar_mult'] = s_ifs / s_era
+    else:
+        f['solar_mult'] = 1.0; f['flagged'] += ['solar']
+    return f
+
+
+def apply_factors(era5, f):
+    """ERA5 on the runs' scale: temperature shifted, wind scaled, solar scaled in ERA5 daylight only (night stays zero)."""
+    p, i = era5
+    p = p.copy(); i = i.copy()
+    p['t2m'] = p['t2m'] + f['t2m_add']; p['wind'] = p['wind'] * f['wind_mult']
+    i['solar'] = np.where(i['solar'] > DAYLIGHT_WM2, i['solar'] * f['solar_mult'], i['solar'])
+    return p, i
+
+
 def _day(ts):
     return pd.Timestamp(ts.date())
 
 
-def assemble(target_day, periods, era5, runs, late=()):
+def assemble(target_day, periods, era5, runs, late=(), factors=None):
     """National weather for every half-hour period of one forecast.
 
     target_day  the UK date D
@@ -97,6 +155,7 @@ def assemble(target_day, periods, era5, runs, late=()):
     era5        (points, intervals) from era5_national, covering at least the context's ERA5 days
     runs        {UTC run date (Timestamp, midnight): (points, intervals) from ecmwf_national}
     late        run dates whose files were not public before the issue time (counted as missing for D)
+    factors     history_factors(...) to put the ERA5 days on the runs' scale (decision 13), or None for raw ERA5
     Returns a DataFrame indexed by period start: t2m, wind, solar, source; and the run used for the horizon.
     """
     D = pd.Timestamp(target_day).normalize().tz_localize(None)
@@ -105,7 +164,7 @@ def assemble(target_day, periods, era5, runs, late=()):
     utc0 = lambda x: pd.Timestamp(x).tz_localize('UTC')
 
     pts, ivs, src_of_day = [], [], {}
-    e_pts, e_ivs = era5
+    e_pts, e_ivs = apply_factors(era5, factors) if factors else era5
     seam = utc0(D - SPLICE_DAYS * DAY)
     pts.append(e_pts[e_pts.index < seam]); ivs.append(e_ivs[e_ivs['end'] <= seam])
 
