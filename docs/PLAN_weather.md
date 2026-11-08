@@ -2,20 +2,22 @@
 
 *Draft for the freeze · Andy Moran (Heaviside Analytics) · design: Brief 4, revision 11 (agreed 8 November 2026)*
 
-> **Status at writing.** No forecaster has been given real weather-forecast inputs for a real day, and no weather-forecast error has been computed, in the backtest or the prospective window. Demand outturn to date is public, and rung 1's no-weather forecasts and errors are published (DOI [10.5281/zenodo.23962005](https://doi.org/10.5281/zenodo.23962005)). Before this plan the author has seen: rung 1's results; the synthetic test (`weather_study/SYNTHETIC_TEST.md`); feasibility checks comparing weather sources with each other, never with demand; national weather inputs built for the backtest from 15 April to 31 October 2026 and dry runs for 8 and 9 November 2026, with no forecast made from them; and the power check (Section 7), which reads only rung 1's published no-weather errors. The plan is committed and tagged before the first real weather forecast; the tag's time is the evidence of timing.
+> **Status at writing.** No forecaster has been given real weather-forecast inputs for a real day, and no weather-forecast error has been computed, in the backtest or the prospective window. Demand outturn to date is public, and rung 1's no-weather forecasts and errors are published (DOI [10.5281/zenodo.23962005](https://doi.org/10.5281/zenodo.23962005)). Before this plan the author has seen: rung 1's results; the synthetic test (`weather_study/SYNTHETIC_TEST.md`); feasibility checks comparing weather sources with each other, never with demand; national weather inputs built for the backtest from 15 April to 31 October 2026, and dry runs for 8 and 9 November 2026, with no forecast made from them; and the power check (Section 7, run 8 November 2026), which reads only rung 1's published no-weather errors. The plan is committed and tagged before the first real weather forecast; the tag's time is the evidence of timing.
 
 ## 1. The questions
 
 Rung 1 found that NESO's day-ahead forecast had less than half the error of every model. NESO uses weather; the models and the regression did not. This study gives all of them the same, honestly timed weather and asks:
 
-| | Question | Status |
-| --- | --- | --- |
-| **Q1** | Does weather improve each forecaster: Chronos-2, Timestral, TimesFM 2.5 and the regression? | **Confirmatory**, in the backtest and the prospective window |
-| Q2 | How much of the gap to NESO does weather close? | Estimate with interval |
-| Q3 | Does rung 1's 7–9% edge over the regression survive when the regression has the same weather? | Estimate with interval |
-| **Q4** | Is weather's help larger in the evening (Q4a), and smaller at midday (Q4b)? | **Confirmatory if powered**, prospective window only |
+| | Question | Backtest | Prospective window |
+| --- | --- | --- | --- |
+| **Q1** | Does weather improve each forecaster: Chronos-2, Timestral, TimesFM 2.5 and the regression? | **Confirmatory** | Descriptive (Section 7) |
+| Q2 | How much of the gap to NESO does weather close? | Estimate with interval | Estimate with interval |
+| Q3 | Does rung 1's 7–9% edge over the regression survive when the regression has the same weather? | Estimate with interval | Estimate with interval |
+| Q4 | Is weather's help larger in the evening (Q4a), and smaller at midday (Q4b)? | — | Descriptive (Section 7) |
 
-**What the answers cannot show.** Why NESO leads; what better weather inputs could do; freedom from training leakage in the backtest (the prospective window answers that); value in money. Brief 4, Section 9, lists the rest.
+Brief 4 designed the prospective Q1 and Q4 tests as confirmatory if the power check allowed. It did not: no prospective test reaches 80% power on one winter or two (Section 7). By the rule fixed in Brief 4's revision 7, before the power check was run, every prospective test is descriptive, and **the confirmatory result is the backtest's four Q1 tests.**
+
+**What the answers cannot show.** Why NESO leads; what better weather inputs could do; freedom from training leakage in the backtest (Section 6); value in money. Brief 4, Section 9, lists the rest.
 
 ## 2. Data
 
@@ -33,7 +35,7 @@ All rules are Brief 4's, agreed before this plan; they are restated here for the
 - **History:** ERA5 up to UTC day D−11; each UTC day from D−10 to D−1 from its own run's first 24 hours. ERA5 never fills an ECMWF day.
 - **Decision 13:** the context's ERA5 days are put on ECMWF's scale with factors from D−70 to D−11 (temperature added; wind and solar multiplied), at least 30 days per variable, else unadjusted and flagged. The regression's training is not adjusted.
 - **Half-hours:** each takes its value at its midpoint; temperature and wind interpolated linearly, solar the mean of the interval containing the midpoint.
-- **Dropped days:** a day the rules cannot build is dropped from every confirmatory analysis, for every forecaster, and listed with its reason.
+- **Dropped days:** a day the rules cannot build is dropped from every analysis, for every forecaster, and listed with its reason.
 
 ## 4. The forecasters, with weather
 
@@ -52,76 +54,105 @@ Every setting not named here is rung 1's, unchanged.
 
 ## 5. Windows
 
-| Window | Target days | Days | Confirmatory tests |
+| Window | Target days | Days | Role |
 | --- | --- | --- | --- |
-| **Backtest** | 16 March 2024 to 31 October 2026 | 960, less any dropped | Q1 (four tests) |
-| **Prospective** | 20 November 2026 to 31 March 2027 | 132, less any dropped or not published on time | Q1 (four), Q4a and Q4b (three each), by the power branch in Section 7 |
+| **Backtest** | 16 March 2024 to 31 October 2026 | 960, less any dropped | **Confirmatory:** Q1, four tests |
+| **Prospective** | 20 November 2026 to 31 March 2027 | 132, less any dropped or not published on time | Descriptive, pre-specified in Section 6 |
 
-Prospective days from 5 to 19 November 2026, before the weather processing was frozen, are reported descriptively. A prospective day counts only if its weather inputs reached GitHub before 00:00 UK time on D (by GitHub's record) and its no-weather forecast met the prospective plan's own rule.
+*960, not 970:* Brief 4 first set the start at 6 March 2024, the first run with solar radiation; revision 11 moved it to 16 March, because each context's last ten days come from runs, and before 16 March some of those runs lack solar radiation, so the agreed rules would drop 6 to 15 March anyway.
+
+Prospective days from 5 to 19 November 2026, before the weather processing was frozen, are reported descriptively and kept apart from the window. A prospective day counts only if its weather inputs reached GitHub before 00:00 UK time on D (by GitHub's record) and its no-weather forecast met the prospective plan's own rule.
 
 ## 6. Statistics
 
 **Daily error:** for each forecaster, arm and day, the mean absolute error in MW over D's half-hours, against INDO outturn (rung 1's definition).
 
-**Q1.** For each forecaster and window: *ratio* = mean daily error with weather ÷ mean daily error without, over the window's days. One-sided test of H0: ratio ≥ 1 against ratio < 1.
+**Resampling, for every test and interval:** moving-block bootstrap over days, blocks of 7, **2,000 draws**, the same resampled days for both arms; seed **20261120** for the backtest and **20270401** for the prospective window (the scoring seed already fixed in the prospective plan). Intervals: 90% percentile intervals, labelled descriptive.
 
-**Resampling, for every test and interval:** moving-block bootstrap over days, blocks of 7, **2,000 draws**, the same resampled days for both arms; seed **20261120** for the backtest and **20270401** for the prospective window (the scoring seed already fixed in the prospective plan). p-values by rung 1's percentile method: the share of bootstrap statistics on the null side (for Q1, ratios ≥ 1). Intervals: 90% percentile intervals, labelled descriptive.
+### 6.1 The confirmatory tests: Q1 in the backtest
 
-**One study-wide error rate: 5%, by a graphical procedure** (Bretz and colleagues, 2009). Fourteen hypotheses: Q1 for four forecasters in two windows (Q1b for the backtest, Q1p for the prospective window), and Q4a and Q4b for each of the three models.
+For each forecaster: *ratio* = mean daily error with weather ÷ mean daily error without, over the backtest's days. One-sided test of H0: ratio ≥ 1 against ratio < 1, with rung 1's percentile p-value: the share of bootstrap ratios at or above 1.
 
-- **Initial weights:** each Q1 hypothesis 1/8 of 5% (0.00625); each Q4 hypothesis 0.
-- **Transitions,** for each forecaster *f* and each model *m*:
+**The error rate.** Brief 4 set one study-wide rate of 5% under a graphical procedure (Bretz and colleagues, 2009) over fourteen hypotheses: Q1 for four forecasters in two windows, and Q4a and Q4b for each model. Each Q1 hypothesis started with 0.00625; a rejected backtest Q1 would pass its level to the same forecaster's prospective Q1, and a rejected prospective Q1 half back to the backtest and a quarter to each of the model's Q4 hypotheses; no level would pass between forecasters. The procedure removes any hypothesis made descriptive before results, passing its initial weight to the same forecaster's backtest Q1 (Brief 4, Section 7, and this plan's draft of 8 November). **Every prospective hypothesis is descriptive (Section 7), so the procedure reduces to four tests, one per forecaster, each at 0.05/4 = 0.0125,** with no further transitions. Each backtest result is final when the backtest is scored.
 
-| From | To | Weight |
-| --- | --- | --- |
-| Q1b(*f*) | Q1p(*f*) | 1 |
-| Q1p(*m*) | Q1b(*m*) · Q4a(*m*) · Q4b(*m*) | 1/2 · 1/4 · 1/4 |
-| Q1p(regression) | Q1b(regression) | 1 |
-| Q4a(*m*) | Q4b(*m*) | 1 |
-| Q4b(*m*) | Q4a(*m*) | 1 |
+**The leakage caveat on the confirmatory result.** The backtest's days fall inside the period the models may have seen in training (rung 1, Section 7: the perturbation check raised no flag, which cannot rule memory out). A model that remembers GB demand would forecast well without weather and might gain less from it, or differently, than a model that does not. Both arms carry the same exposure, so the comparison is within each model, but the size of the gain could still differ on unseen data. Every confirmatory sentence carries the caveat (Section 9). **The prospective window is the check on it:** no day in it can be in any model's training data, and Section 6.3 fixes now what it will report and how it will be read against the backtest.
 
-- **Algorithm:** reject any hypothesis whose p-value is at or below its current level; pass its level along its outgoing edges and update the graph (Bretz and colleagues, 2009, Algorithm 1); repeat until no further rejection. The result does not depend on the order of rejections.
-- **Consequences:** a Q4 hypothesis can reject only after its model's prospective Q1 has rejected. Level never passes between forecasters.
-- **Timing:** the backtest's hypotheses are tested when the backtest is scored. A rejection then is final. A non-rejection is provisional: when the prospective tests are scored, levels passed to it may let it reject. The backtest result is reported as "rejected" or "not rejected so far", and final only when the prospective tests are done.
-- **If a prospective test is made descriptive** by the power branch (Section 7), its hypothesis and, for a model, its Q4 hypotheses are removed from the graph before any result, and its initial weight goes to the same forecaster's backtest Q1.
+### 6.2 Further backtest estimates (with intervals, no tests)
 
-**Q2, the gap to NESO.** For each model and window: the reduction in mean daily error, without − with, in MW; and the share of the gap closed, (without − with) ÷ (without − NESO). The share is reported only where the gap without weather exceeds 100 MW, always beside the MW. Intervals as above.
+- **Q2, the gap to NESO:** for each model, the reduction in mean daily error, without − with, in MW; and the share of the gap closed, (without − with) ÷ (without − NESO), reported only where the gap without weather exceeds 100 MW, always beside the MW.
+- **Q3, rung 1's edge:** for each model, mean daily error with weather ÷ the regression's with weather, beside rung 1's ratio without weather. Read with Brief 4's caveat: the regression trains on ERA5 and forecasts with ECMWF, which in the cool months runs about 0.2 °C colder, roughly 100–200 MW of demand; part of any edge may be that mismatch.
+- **Q4's measures** (as in 6.3), for the backtest too.
 
-**Q3, rung 1's edge.** For each model and window: mean daily error with weather ÷ the regression's with weather, with its interval, beside rung 1's ratio without weather. Read with Brief 4's caveat: the regression trains on ERA5 and forecasts with ECMWF, which in the cool months runs about 0.2 °C colder, roughly 100–200 MW of demand; part of any edge may be that mismatch.
+### 6.3 The prospective window, pre-specified (descriptive)
 
-**Q4, prospective window only.** *Blocks:* six four-hour blocks of UK clock time from midnight. For a block or set of blocks, the *fractional error reduction* FR = 1 − (mean absolute error with weather ÷ without), pooling every half-hour of the window's days in those blocks.
+Reported for every forecaster, with 90% intervals from the prospective bootstrap (seed 20270401), and no formal test or p-value:
 
-- **Q4a:** FR(16:00–20:00) − FR(00:00–04:00); H0 ≤ 0, one-sided.
-- **Q4b:** FR(12:00–16:00) − FR(the other five blocks together); H0 ≥ 0, one-sided (midday smaller).
+1. **Q1:** the ratio, with weather ÷ without.
+2. **Q2** and **Q3:** as in 6.2.
+3. **Q4:** *blocks* are six four-hour blocks of UK clock time from midnight; for a block or set of blocks, the *fractional error reduction* FR = 1 − (mean absolute error with weather ÷ without), pooling every half-hour of the window's days in those blocks. Reported: FR in each block; Q4a's difference, FR(16:00–20:00) − FR(00:00–04:00); Q4b's difference, FR(12:00–16:00) − FR(the other five blocks together).
+4. **Agreement with the backtest,** for each forecaster's Q1 ratio, read by a rule fixed now:
+   - *consistent* if the prospective ratio lies inside the backtest's 90% interval, or the two intervals overlap;
+   - *smaller prospective gain* if the prospective interval lies wholly above the backtest's (weather helped less on unseen days: consistent with, though not proof of, a backtest flattered by leakage);
+   - *larger prospective gain* if it lies wholly below.
+   The windows also differ in season (the prospective window is winter only), so the backtest's Q1 is also reported on its own winter days (20 November to 31 March in 2024–25 and 2025–26) beside the prospective result.
+5. **Nothing else is reported as a prospective finding.** Any further prospective comparison is labelled exploratory.
 
-The bootstrap resamples days, as for Q1.
+### 6.4 Other descriptive results, outside the tests
 
-**Descriptive, outside the procedure:**
-- every confirmatory quantity with all fallback days removed;
-- Q1 on the unadjusted inputs (decision 13 off);
-- Q1 with decision 13's minimum at 20 and 45 days;
+- every Q1 result with all fallback days removed;
+- Q1 on the unadjusted inputs (decision 13 off), and with decision 13's minimum at 20 and 45 days;
 - the other TimesFM mode;
 - errors by block in MW, and by season;
 - the bank-holiday check, as Brief 4, Section 6, with its reading fixed there; intervals from 2,000 draws resampling holidays and ordinary days separately, seed **20261121**;
-- the five days from 5 to 19 November 2026.
+- the days from 5 to 19 November 2026.
 
 **Missing data:** rung 1's rules for demand and NESO; Section 3's rules for weather. Every exclusion is listed.
 
-## 7. Power
+## 7. Power, and the branch for each prospective test
 
-`weather_study/power.py`, 200 replications per cell, reading only rung 1's published no-weather forecasts. For each forecaster, the weather arm is simulated from the forecaster's own real errors: a share *c* of each half-hour's error is kept, the rest is the same forecaster's error from another day at least 30 days away, and the result is scaled to the true effect. The noise, *c*, comes from rung 1's similar forecasters: the half-hourly errors of the three models correlate at 0.82 to 0.95 over the backtest window. One model with and without weather should agree at least as closely as two different models, so the table uses 0.82, the lower bound, and 0.9. The prospective windows are stood in for by rung 1's two winters, 20 November to 31 March 2024–25 and 2025–26 (132 days each; 264 together).
+**Run 8 November 2026,** `weather_study/power.py`, 200 replications per cell, 1,000 bootstrap draws per replication, seed 20261108; output `weather_study/power.json`. It reads only rung 1's published no-weather forecasts and computes no weather-forecast error.
 
-*[Power table: inserted from `weather_study/power.json` when the check finishes.]*
+**Method.** For each forecaster, the weather arm is simulated from that forecaster's own real errors: a share *c* of each half-hour's simulated error is its real error, and the rest is the same forecaster's error on a day at least 30 days away; the result is scaled so that the true effect holds over the window. Each replication tests on a block-resampled set of days, as a real study would see them.
 
-**The branch for each prospective test,** by the brief's rule, evaluated at the level the test holds on its path (Q1: 0.00625; Q4: 0.00625, its share once both its model's Q1 tests have rejected) and the middle effect (Q1: a 5% cut; Q4: 6 points):
+**The noise, *c*.** *c* is the correlation between the two arms' errors: how much of a forecaster's error with weather is the same error it made without. The brief requires it to be estimated from rung 1's similar forecasters, never from weather forecasts. Over the backtest window, the three models' half-hourly errors correlate at 0.82 (Chronos-2 with TimesFM 2.5) to 0.95 (Chronos-2 with Timestral). One model with and without weather should agree at least as closely as two different models, so **0.82 is the cautious value and 0.9 the optimistic one;** the table gives both, as "cautious / optimistic".
 
-1. power at least 80% on 132 days at both values of *c*: **confirmatory this winter;**
-2. otherwise, at least 80% on 264 days at both values: **confirmatory over two winters** (April 2028), with a descriptive interim read in April 2027;
-3. otherwise: **descriptive.**
+**Windows.** The backtest is its 960 days. The prospective window is stood in for by rung 1's two winters, 20 November to 31 March in 2024–25 and 2025–26: 132 days each ("one winter", alternating), and 264 together ("two winters").
 
-If power at the middle effect crosses 80% between the two values of *c*, the test cannot be called, and the default is **two winters**.
+**Q1:** probability of rejecting H0 (ratio ≥ 1) at 0.00625, the level each Q1 test held under the full design; for the backtest, also at 0.0125, the level it now holds.
 
-*[Branches: inserted from the table.]*
+| Forecaster | Window | Weather cuts error by 5% (middle effect) | By 10% | Backtest at 0.0125, 5% cut |
+| --- | --- | --- | --- | --- |
+| Chronos-2 | backtest | 0.77 / 0.94 | 1.00 / 1.00 | 0.83 / 0.97 |
+| | one winter | 0.14 / 0.24 | 0.46 / 0.83 | — |
+| | two winters | 0.23 / 0.38 | 0.82 / 0.95 | — |
+| Timestral | backtest | 0.70 / 0.96 | 1.00 / 1.00 | 0.75 / 0.98 |
+| | one winter | 0.14 / 0.18 | 0.47 / 0.69 | — |
+| | two winters | 0.28 / 0.39 | 0.77 / 0.96 | — |
+| TimesFM 2.5 | backtest | 0.72 / 0.97 | 1.00 / 1.00 | 0.80 / 0.97 |
+| | one winter | 0.19 / 0.19 | 0.57 / 0.69 | — |
+| | two winters | 0.20 / 0.39 | 0.80 / 0.96 | — |
+| Regression | backtest | 0.65 / 0.92 | 0.99 / 1.00 | 0.74 / 0.94 |
+| | one winter | 0.17 / 0.23 | 0.42 / 0.60 | — |
+| | two winters | 0.20 / 0.38 | 0.65 / 0.85 | — |
+
+**Q4:** probability of rejecting at 0.00625, the share a Q4 test would have held once its model's Q1 tests had rejected in both windows.
+
+| Model | Test | One winter, 6 points (middle) | One winter, 10 points | Two winters, 6 points | Two winters, 10 points |
+| --- | --- | --- | --- | --- | --- |
+| Chronos-2 | Q4a | 0.14 / 0.20 | 0.24 / 0.50 | 0.25 / 0.36 | 0.53 / 0.68 |
+| | Q4b | 0.15 / 0.21 | 0.27 / 0.45 | 0.17 / 0.34 | 0.56 / 0.80 |
+| Timestral | Q4a | 0.17 / 0.23 | 0.31 / 0.49 | 0.18 / 0.34 | 0.57 / 0.76 |
+| | Q4b | 0.14 / 0.28 | 0.27 / 0.56 | 0.17 / 0.39 | 0.54 / 0.85 |
+| TimesFM 2.5 | Q4a | 0.17 / 0.24 | 0.32 / 0.55 | 0.21 / 0.36 | 0.56 / 0.85 |
+| | Q4b | 0.11 / 0.24 | 0.34 / 0.62 | 0.18 / 0.38 | 0.62 / 0.86 |
+
+All effect sizes are in `power.json`. With 200 replications, each cell's standard error is at most about 0.035.
+
+**The rule, fixed in Brief 4's revision 7 before this check was run,** for each prospective test, at its middle effect: (1) at least 80% power on 132 days: confirmatory this winter; (2) otherwise at least 80% on 264 days: confirmatory over two winters; (3) otherwise, descriptive. If 80% lies within the noise estimate's uncertainty, the default is two winters.
+
+**Its application.** No prospective test reaches 80% power on either length at its middle effect. The highest value anywhere, at the optimistic noise, is 0.39. **Every prospective test, Q1 and Q4, is therefore descriptive (branch 3).** The decision does not depend on the uncertainty in *c*: even the optimistic value leaves every test far below 80% on both lengths, so 80% does not lie within the noise estimate's range and the two-winter default does not arise. The rule was applied as written; its thresholds, effect sizes and levels were not changed after the table was seen.
+
+**Why the prospective window is weak.** Winter demand errors vary greatly from day to day, and 132 days is about 19 independent weeks; a second winter adds only as many again. The backtest's 960 days give the confirmatory tests adequate power at a 5% effect at the optimistic noise, and 0.74–0.83 at the cautious one.
 
 ## 8. Gate checks
 
@@ -143,30 +174,29 @@ Every sentence names the window, the ratio and its 90% interval.
 
 | Result | Sentence |
 | --- | --- |
-| Q1 rejected | "Over [window], weather improved [forecaster]'s day-ahead forecast of GB demand: mean daily error fell by [x]% (error ratio r; 90% interval a–b, descriptive), confirmed under the study-wide 5% procedure." |
-| Q1 not rejected | "Over [window], weather was not shown to improve [forecaster]'s forecast (error ratio r; 90% interval a–b, descriptive)." When the interval excludes 1 but the procedure does not reject, add: "Unadjusted, the interval excludes no improvement; after adjustment across the study's tests it is not confirmed." |
-| Q1 backtest, provisional | "…not confirmed so far; the result is final when the prospective window is scored." |
+| Backtest Q1 rejected | "Over the backtest (16 March 2024 to 31 October 2026), weather improved [forecaster]'s day-ahead forecast of GB demand: mean daily error fell by [x]% (error ratio r; 90% interval a–b, descriptive), confirmed at the study's 5% error rate." |
+| Backtest Q1 not rejected | "Over the backtest, weather was not shown to improve [forecaster]'s forecast (error ratio r; 90% interval a–b, descriptive)." When the interval lies below 1 but the test does not reject: "Unadjusted, the interval excludes no improvement; at the adjusted level it is not confirmed." |
+| Leakage note, after every backtest sentence about a model | "The backtest falls in a period the model may have seen in training. The prospective window, which it cannot have seen, is the descriptive check on this result." |
+| Prospective Q1 | "Over the prospective window (20 November 2026 to 31 March 2027), with weather [forecaster]'s error ratio was r (90% interval a–b, descriptive; the window was too short for a confirmatory test). This is [consistent with / a smaller gain than / a larger gain than] the backtest (Section 6.3)." |
 | Q2 | "With weather, [model]'s gap to NESO fell by [x] MW (90% interval a–b, descriptive)[, [s]% of the gap]." |
 | Q3 | "With the same weather, [model]'s error was r times the regression's (90% interval a–b, descriptive), against [r₁] without weather in rung 1. The regression trains on reanalysis and forecasts with ECMWF; in winter this mismatch is worth about 100–200 MW, so part of any edge may be the regression's." |
-| Q4a / Q4b rejected | "In the evening, weather cut [model]'s error by [x] points more than overnight (90% interval a–b, descriptive), confirmed." / "At midday, weather cut [model]'s error by [x] points less than at other times…, confirmed." |
-| Q4 not reached | "Q4 was not tested for [model], because weather was not confirmed to improve it in the prospective window; the block figures are descriptive." |
-
-Every backtest sentence carries rung 1's leakage note: "The model may have seen GB demand from this period in training."
+| Q4 | "In the prospective window, weather cut [model]'s error by [x] points more in the evening than overnight, and [y] points [less/more] at midday than at other times (90% intervals a–b and c–d, descriptive; not tested, for lack of power)." |
 
 ## 10. Procedure
 
-1. Freeze the weather processing and this plan: commit; tag `weather-plan`; write `WEATHER_LOCK.json` (the tag, the hashes of this plan, the private code, the weights, the backtest inputs and every source file, `gbwx`'s package list, seeds, and the power branches). Publish this plan and the lock.
+1. Freeze the weather processing and this plan: commit; tag `weather-plan`; write `WEATHER_LOCK.json` (the tag, the hashes of this plan, the private code, the weights, the backtest inputs and every source file, `gbwx`'s package list, seeds, and the power table's hash). Publish this plan and the lock.
 2. Start the daily push; first target day 20 November 2026.
-3. Score the backtest: run until one attempt passes the gate; test the backtest hypotheses.
-4. At the prospective window's end (or April 2028 on the two-winter branch): score it, complete the procedure, write the results note with Section 9's sentences, publish the private code the same day, archive with a DOI.
+3. Score the backtest: run until one attempt passes the gate; test the four Q1 hypotheses; report Sections 6.1, 6.2 and 6.4.
+4. After 31 March 2027: score the prospective window as Section 6.3; write the results note with Section 9's sentences; publish the private code the same day; archive with a DOI.
 
-**Deviations:** after the tag, any change to the data, inputs, forecasters, settings, windows, statistics, procedure, gate or wording; a second passing run; a result outside Section 6 reported as anything but exploratory; a listed output not reported.
+**Deviations:** after the tag, any change to the data, inputs, forecasters, settings, windows, statistics, gate or wording; a second passing run; a result outside Section 6 reported as anything but exploratory; a listed output not reported.
 
 ## 11. Decisions fixed in this plan
 
 | # | Decision | Settled as |
 | --- | --- | --- |
 | 1 | Seeds | Backtest bootstrap 20261120; prospective 20270401; bank-holiday intervals 20261121; power check 20261108 |
-| 2 | The graph | Section 6 |
-| 3 | Model interfaces with weather | Section 4 |
-| 4 | Power branches | Section 7, from the table |
+| 2 | Confirmatory tests | Four backtest Q1 tests at 0.0125 each, after the procedure removed the descriptive prospective hypotheses (Section 6.1) |
+| 3 | Power branches | Every prospective test descriptive, by Brief 4's rule, robust to the noise estimate (Section 7) |
+| 4 | The prospective analysis | Pre-specified in Section 6.3, including how agreement with the backtest is read |
+| 5 | Model interfaces with weather | Section 4 |
