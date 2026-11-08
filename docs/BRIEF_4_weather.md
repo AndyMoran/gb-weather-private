@@ -2,9 +2,9 @@
 
 Zero-shot forecasting models and a simple regression, given the same day-ahead weather forecasts, against NESO's forecast of GB electricity demand
 
-Agreed · revision 10 · 6 November 2026 · Andy Moran (Heaviside Analytics)
+Draft for agreement · revision 11 · 8 November 2026 · Andy Moran (Heaviside Analytics)
 
-*Revision 10, amended 7 November 2026: the bank-holiday prediction becomes a descriptive check with its reading fixed in advance (Section 6). Revision 10 adds what the archive showed about release times: through summer time 2025, ECMWF released the 00:00 UTC run after the 09:30 issue, so on 186 days the target day takes the previous day's run (decision 12). Revision 9 writes decisions 7 to 11 as rules, after review: the splice and its seams, what happens when a run is missing or late, when a source may be switched, what counts as two ERA5 copies agreeing, and the threshold that would change TimesFM's mode. Nothing is left to be decided after a test. Revision 8 records the feasibility check (Section 12) and the changes it forces: the backtest starts on 6 March 2024, the first run with solar radiation; the last ten days of every context come from ECMWF's runs, in the backtest as in the prospective window; ECMWF's Google copy is the primary source; TimesFM's regression-first mode is proposed; and the weather study gets its own software environment. Revision 7 corrects the prospective window's bank holidays, sets one study-wide error rate for the confirmatory tests, adds a temperature-by-wind term to the regression, and states that no real weather-forecast error is computed before the freeze. Revision 6 recorded the decisions on openness and inputs. Revision 5 rewrote revision 4 for plain style, changing no decision. Revisions 2 to 4 answered three reviews; the main changes were a confirmatory test for the main question, reanalysis for weather history, ECMWF's own archive as the weather source, and a scale-free measure for the time-of-day tests.*
+*Revision 11, 8 November 2026: the history is put on the forecast's scale (decision 13), after a monthly comparison of ECMWF and ERA5. Revision 10, amended 7 November 2026: the bank-holiday prediction becomes a descriptive check with its reading fixed in advance (Section 6). Revision 10 adds what the archive showed about release times: through summer time 2025, ECMWF released the 00:00 UTC run after the 09:30 issue, so on 186 days the target day takes the previous day's run (decision 12). Revision 9 writes decisions 7 to 11 as rules, after review: the splice and its seams, what happens when a run is missing or late, when a source may be switched, what counts as two ERA5 copies agreeing, and the threshold that would change TimesFM's mode. Nothing is left to be decided after a test. Revision 8 records the feasibility check (Section 12) and the changes it forces: the backtest starts on 6 March 2024, the first run with solar radiation; the last ten days of every context come from ECMWF's runs, in the backtest as in the prospective window; ECMWF's Google copy is the primary source; TimesFM's regression-first mode is proposed; and the weather study gets its own software environment. Revision 7 corrects the prospective window's bank holidays, sets one study-wide error rate for the confirmatory tests, adds a temperature-by-wind term to the regression, and states that no real weather-forecast error is computed before the freeze. Revision 6 recorded the decisions on openness and inputs. Revision 5 rewrote revision 4 for plain style, changing no decision. Revisions 2 to 4 answered three reviews; the main changes were a confirmatory test for the main question, reanalysis for weather history, ECMWF's own archive as the weather source, and a scale-free measure for the time-of-day tests.*
 
 **Leakage first.** This study can offer what the demand study could not: a test window in which no day can be in any model's training data. A model cannot be trained on days that had not happened when its weights were fixed, and the pinned revisions of all three models predate November 2026: TimesFM 2.5, 2 October 2025; Chronos-2, 30 October 2025; Timestral, 15 October 2026 (Hugging Face commit dates, checked 5 November 2026; Chronos-2's pinned revision is dated 5 June 2026, but its weights file is unchanged, by hash, since it was added on 30 October 2025). The window runs from 20 November 2026 to March 2027. This rests on the pinned weights' own dates, not on any maker's account of its training data.
 
@@ -74,6 +74,32 @@ Searched 5 November 2026, on arXiv and Google Scholar, for "time series foundati
 3. **One run for the end of the history and the whole horizon.** UTC day D−1 and the target day D both come from the 00:00 UTC run of D−1: the history up to the 08:30 cut-off, then the whole horizon, from the cut-off to the end of D (steps 0 to 48). On a fallback day, both come from the run of D−2 (steps 24 to 72).
 4. **Interpolation.** Each half-hour takes its value at its midpoint. Wind speed is computed from its two components at each grid point and source time, before weighting. Temperature and wind speed are interpolated linearly in time between each source's own times (hourly for ERA5, 3-hourly for ECMWF), including across the seam at 00:00 UTC on D−10. Solar radiation becomes mean W/m² over each source interval (ERA5: the hour's total ÷ 3,600 s; ECMWF: the difference between steps ÷ 10,800 s); a half-hour takes the mean of the interval that contains it.
 5. **The regression's training** uses the same rule relative to D: training days to D−11 from ERA5, D−10 to D−2 from the ECMWF runs.
+6. **The context's ERA5 days are put on ECMWF's scale** (decision 13, below). The regression's training is not.
+
+**Putting the history on the forecast's scale (decision 13).** ECMWF's runs and ERA5 differ systematically. Comparing each run's first day (steps 0 to 24) with ERA5 at the same instants, every day from February to October 2026 (`feasibility/feas_6_bias_by_month.py`):
+
+| Month | Temperature, ECMWF − ERA5 (90% interval) | Wind, ECMWF ÷ ERA5 | Solar, ECMWF ÷ ERA5, daylight (90% interval) |
+| --- | --- | --- | --- |
+| Feb 2026 | −0.29 °C (−0.36 to −0.22) | 0.925 | 1.040 (1.001–1.079) |
+| Mar | −0.12 (−0.20 to −0.03) | 0.902 | 1.038 (1.020–1.059) |
+| Apr | −0.13 (−0.20 to −0.06) | 0.902 | 1.014 (1.002–1.029) |
+| May | +0.07 (−0.03 to +0.16) | 0.911 | 1.035 (1.017–1.053) |
+| Jun | −0.01 (−0.10 to +0.08) | 0.909 | 1.079 (1.060–1.099) |
+| Jul | +0.33 (+0.23 to +0.41) | 0.901 | 1.064 (1.043–1.090) |
+| Aug | +0.04 (−0.05 to +0.14) | 0.906 | 1.065 (1.047–1.084) |
+| Sep | −0.16 (−0.22 to −0.08) | 0.886 | 1.104 (1.077–1.129) |
+| Oct | −0.19 (−0.24 to −0.12) | 0.887 | 1.110 (1.092–1.131) |
+
+Wind is nearly steady, about a tenth lower in ECMWF (each month's interval about ±0.007). Temperature and solar follow an annual cycle well beyond their intervals (about ±0.08 °C and ±0.02): ECMWF is colder in the cool months and warmer in high summer, and its excess sunshine grows from a few percent in spring to a tenth in autumn. The day-two lead (the previous run's steps 24 to 48) agrees with the first day to within 0.01 °C and 0.005 in either ratio, so one set of factors serves both.
+
+Without a correction, every context carries a step ten days before its end, where ERA5 gives way to ECMWF. The step is not conservative for every question: the solar difference falls at midday, where Q4b is tested, and could make weather look less useful there for a reason unrelated to behind-the-meter solar.
+
+- **The rule.** For each target day D, factors are estimated from the UTC days D−70 to D−11 that both sources cover at the issue time: each run's first day (steps 0 to 24) against ERA5 at the same instants. Temperature: the mean difference, added. Wind: the ratio of totals, multiplied. Solar: the ratio of totals over ERA5-daylight 3-hour intervals (ERA5 mean above 10 W/m²), with ECMWF's 3-hour means from its accumulations and ERA5's from its hourly totals; it multiplies only ERA5 hours above 10 W/m², so night stays zero.
+- **Applied to the context only.** The window lies in the same season as the context's ERA5 days (D−56 to D−11), so it follows the cycle above. The regression's training year is not adjusted: a 60-day factor would carry one season's difference across the whole year, and there is no archive before February 2024 from which to estimate 2023's. The regression therefore trains on ERA5 and forecasts with ECMWF; in the winter months this mismatch is about 0.2 °C, roughly 100 to 200 MW of demand. It is stated as a limitation and affects only a reference forecaster, not Q1's comparisons.
+- **Minimum data.** At least 30 days per variable; with fewer, that variable is left unadjusted and the day flagged. Only the start of the backtest is affected: solar until about mid-April 2024 (solar radiation enters the runs on 6 March 2024), and temperature and wind briefly in early March, whose window is February 2024 alone. Results at 20 and 45 days are reported descriptively.
+- **What it never uses:** demand, or anything from after the issue time.
+- **Recording.** Each day's factors, and the inputs both adjusted and unadjusted, are published with the inputs. Q1 is also reported on the unadjusted inputs, descriptively.
+- **Self-tested:** a synthetic day whose known 3-hour solar mean is recovered from both sources by their own conventions, with a deliberate mismatch of conventions shown to fail; and known offsets and ratios recovered and removed.
 
 **When a run is missing or late.** Fixed now, applied identically in both windows, and every case listed in the results with its reason:
 
@@ -210,6 +236,7 @@ As in rung 1, the official run is the first to pass every check. Before the free
 - **Why NESO leads.** Whatever weather leaves unexplained belongs to NESO's modelling, data and judgement, which this study cannot separate.
 - **What better weather inputs could do.** One weather model, three variables, fixed weightings. Better choices might do better; this study tests honest, simple ones.
 - **Weather within Great Britain.** The national inputs are fixed-weight averages. They do not capture changes in where people live or where panels are over the study period, and they reduce the weather's pattern within Great Britain to one number per variable.
+- **The regression's weather scale.** The regression trains on ERA5 and forecasts with ECMWF, whose temperature differs by up to 0.3 °C with the season (Section 3). Its forecasts carry that mismatch; the foundation models' contexts do not.
 - **Solar weights from a later year.** They use end-2025 capacity for every day, including 2024. That is later information about where panels are, not about how much they generated or about demand; the weights are shares, and change little from year to year. Weights for each year were considered and rejected as adding complexity for no material gain.
 - **Weather as known at the time, for history.** Reanalysis is cleaner than real-time observation. It flatters every forecaster equally.
 - **Higher resolution.** ECMWF moved its open data to 0.1° on 20 October 2026; the study keeps 0.25° throughout, to match the backtest.
@@ -248,7 +275,7 @@ Taken 5 November 2026:
 5. **TimesFM's XReg mode:** chosen after the feasibility check, before any weather forecast, with its reason stated.
 6. **Licences:** none outstanding. ECMWF's open data and ERA5 both allow commercial use with attribution. Open-Meteo only verifies the archive and never feeds the results.
 
-Proposed in revisions 8 to 10 and agreed on 6 November 2026, each as a fixed rule:
+Proposed in revisions 8 to 11, each as a fixed rule; 7 to 12 agreed on 6 November 2026, 13 proposed on 8 November:
 
 7. **Backtest start:** 6 March 2024, the first run with solar radiation; 970 days, inclusive, to 31 October 2026. February 2024 is excluded from every analysis (Section 3).
 8. **Splice:** a fixed ten days from ECMWF's runs, in every forecast and in the regression's training, with the seam, interpolation and missing-run rules in Section 3.
@@ -256,6 +283,7 @@ Proposed in revisions 8 to 10 and agreed on 6 November 2026, each as a fixed rul
 10. **ERA5 source:** the CDS; Google's copy only on technical failure, and only where the agreement check passes (Section 3).
 11. **TimesFM's mode:** regression first, unless the specified synthetic test meets the reversal threshold in every scenario (Section 4). Settled on 6 November 2026: the test kept regression first (Section 12).
 12. **Late runs:** a run released after the issue time counts as missing; the target day falls back to the previous day's run, is flagged, and stays in the confirmatory analysis. The 186 fallback days of summer 2025 are reported without, descriptively. The prospective window is unaffected: release at 07:34 UTC leaves 56 minutes even after the clocks change on 28 March 2027.
+13. **History on the forecast's scale:** the context's ERA5 days are put on ECMWF's scale with factors from D−70 to D−11 (temperature added, wind and solar multiplied), at least 30 days each; the regression's training is not adjusted, a stated limitation (Section 3). Proposed 8 November 2026, after the monthly check the reviewer set as its gate.
 
 The Copernicus account is registered and working.
 
