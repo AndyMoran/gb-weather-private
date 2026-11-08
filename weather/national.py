@@ -146,6 +146,22 @@ def apply_factors(era5, f):
     return p, i
 
 
+def era5_halfhourly(era5, periods):
+    """Raw ERA5 (no factors) on the demand study's half-hours, by the same midpoint rules as assemble: the
+    regression's training weather before D-10 (Brief 4, Section 3, rule 5). Returns t2m, wind, solar by period."""
+    p, i = era5
+    ns = lambda ix: pd.DatetimeIndex(ix).as_unit('ns').asi8
+    mids = pd.DatetimeIndex(periods) + pd.Timedelta(minutes=15)
+    x, m = ns(p.index), ns(mids)
+    if m[0] < x[0] or m[-1] > x[-1]: raise Dropped('ERA5 does not span the requested half-hours')
+    out = pd.DataFrame({'t2m': np.interp(m, x, p['t2m'].to_numpy()), 'wind': np.interp(m, x, p['wind'].to_numpy())},
+                       index=pd.DatetimeIndex(periods))
+    st, en = ns(i['start']), ns(i['end']); k = np.searchsorted(st, m, side='right') - 1
+    if not ((k >= 0) & (m < en[np.clip(k, 0, None)])).all(): raise Dropped('ERA5 solar intervals do not span the half-hours')
+    out['solar'] = i['solar'].to_numpy()[k]
+    return out
+
+
 def _day(ts):
     return pd.Timestamp(ts.date())
 

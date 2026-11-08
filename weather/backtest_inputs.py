@@ -13,6 +13,8 @@ Phases, each resumable and cached under ~/gb-weather-data/backtest/:
                 any fallback, or the reason the rules drop the day
 Outputs:
   inputs_<first>_<last>.csv.gz   one row per target day and half-hour (long format)
+  era5_halfhourly_<first>_<last>.csv.gz   raw ERA5 on every half-hour from a year before the first day: the
+                                 regression's training weather before D-10
   days_<first>_<last>.jsonl      per day: factors, fallback, the runs used and their hashes, or the drop reason
   build.json                     hashes of the code and weights, counts, and every output's SHA-256
 
@@ -118,6 +120,8 @@ def main():
     ap.add_argument('--from', dest='first', default=f'{FIRST_DAY}'); ap.add_argument('--to', dest='last', default=f'{LAST_DAY}')
     ap.add_argument('--phase', choices=['runs', 'availability', 'all'], default='all'); ap.add_argument('--workers', type=int, default=3)
     ap.add_argument('--check', help='a built target day: rebuild it with the daily push code and compare')
+    ap.add_argument('--no-regression-history', action='store_true',
+                    help='skip the year of raw ERA5 for the regression (partial builds before ERA5 has fully downloaded)')
     a = ap.parse_args()
     if a.check: return check(a.check)
     first, last = dt.date.fromisoformat(a.first), dt.date.fromisoformat(a.last)
@@ -131,11 +135,20 @@ def main():
     w_pop, w_pv = N.load_weights(WEIGHTS)
     say('reducing runs to national series'); runs, run_recs = national_runs(dates, w_pop, w_pv)
     D0 = pd.Timestamp(first)
-    e_first = min(periods_for(D0)[0][0].floor('1h') - pd.Timedelta(hours=1), pd.Timestamp(D0 - N.FACTOR_WINDOW[0] * N.DAY).tz_localize('UTC'))
+    reg_first = pd.Timestamp(D0 - pd.Timedelta(days=0 if a.no_regression_history else 367)).tz_localize('UTC')
+    e_first = min(periods_for(D0)[0][0].floor('1h') - pd.Timedelta(hours=1), pd.Timestamp(D0 - N.FACTOR_WINDOW[0] * N.DAY).tz_localize('UTC'),
+                  reg_first - pd.Timedelta(hours=1))
     e_last = pd.Timestamp(pd.Timestamp(last) - N.SPLICE_DAYS * N.DAY).tz_localize('UTC')
     say(f'ERA5 national, {e_first:%Y-%m-%d} .. {e_last:%Y-%m-%d}'); era5, era5_rec = national_era5(e_first, e_last, w_pop, w_pv)
 
     tag = f'{first}_{last}'
+    hh_path = os.path.join(OUT, f'era5_halfhourly_{tag}.csv.gz')
+    if not a.no_regression_history:
+        hh_periods = pd.date_range(reg_first, e_last - pd.Timedelta(minutes=30), freq='30min')
+        hh = N.era5_halfhourly(era5, hh_periods)               # raw ERA5 for the regression's training weather
+        hh.index.name = 'period_start_utc'
+        hh.to_csv(hh_path, float_format='%.4f', date_format='%Y-%m-%dT%H:%M:%SZ', compression='gzip')
+        say(f'ERA5 half-hourly for the regression: {len(hh)} half-hours, {hh.index[0]:%Y-%m-%d} .. {hh.index[-1]:%Y-%m-%d}')
     csv_path = os.path.join(OUT, f'inputs_{tag}.csv.gz'); jl_path = os.path.join(OUT, f'days_{tag}.jsonl')
     n_ok = n_drop = n_fb = 0
     with gzip.open(csv_path, 'wt', newline='') as fc, open(jl_path, 'w') as fj:
@@ -165,7 +178,7 @@ def main():
     build = dict(built_utc=dt.datetime.now(dt.timezone.utc).isoformat(timespec='seconds'), first=f'{first}', last=f'{last}',
                  days_built=n_ok, days_dropped=n_drop, fallback_days=n_fb, runs_late=sorted(f'{x:%Y-%m-%d}' for x in late),
                  code_sha256={f: S.sha256(os.path.join(HERE, f)) for f in ('national.py', 'sources.py', 'archive.py', 'backtest_inputs.py')},
-                 weights_sha256=S.sha256(WEIGHTS), outputs={os.path.basename(p): S.sha256(p) for p in (csv_path, jl_path)},
+                 weights_sha256=S.sha256(WEIGHTS), outputs={os.path.basename(p): S.sha256(p) for p in (csv_path, jl_path, hh_path) if os.path.exists(p)},
                  runs={k: v.get('sha256') for k, v in run_recs.items()}, era5_days=era5_rec)
     json.dump(build, open(os.path.join(OUT, f'build_{tag}.json'), 'w'), indent=1)
     say(f'=== done: {n_ok} days built, {n_drop} dropped, {n_fb} on the fallback run; outputs in {OUT}')
