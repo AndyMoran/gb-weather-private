@@ -174,6 +174,10 @@ def main():
     say(f'  ERA5 days: {sum(v["copy"] == "cds" for v in rec["era5_days"].values())} from CDS, '
         f'{sum(v["copy"] != "cds" for v in rec["era5_days"].values())} from Google; runs: '
         f'{sorted({v["copy"] for v in rec["runs"].values()}, key=str)}')
+    f = rec['history_factors']
+    say(f"  history factors ({f['window']}): temperature {f['t2m_add']:+.3f} C, wind x{f['wind_mult']:.3f}, "
+        f"solar x{f['solar_mult']:.3f}; days {f['days_temperature_wind']}/{f['days_solar']}"
+        f"{'; FLAGGED ' + ', '.join(f['flagged']) if f['flagged'] else ''}")
     if a.dry_run: say(f'dry run: written to {folder}'); return
     sha = push(rec['target_day'])
     say(f'pushed {sha}; GitHub has it')
