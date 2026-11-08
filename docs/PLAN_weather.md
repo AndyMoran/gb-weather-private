@@ -1,6 +1,6 @@
 # Does weather help? Analysis plan for the weather study (rung 2)
 
-*Draft for the freeze · Andy Moran (Heaviside Analytics) · design: Brief 4, revision 11 (agreed 8 November 2026)*
+*Final text, agreed 8 November 2026; frozen with the weather processing (tag `weather-plan`) · Andy Moran (Heaviside Analytics) · design: Brief 4, revision 11*
 
 > **Status at writing.** No forecaster has been given real weather-forecast inputs for a real day, and no weather-forecast error has been computed, in the backtest or the prospective window. Demand outturn to date is public, and rung 1's no-weather forecasts and errors are published (DOI [10.5281/zenodo.23962005](https://doi.org/10.5281/zenodo.23962005)). Before this plan the author has seen: rung 1's results; the synthetic test (`weather_study/SYNTHETIC_TEST.md`); feasibility checks comparing weather sources with each other, never with demand; national weather inputs built for the backtest from 15 April to 31 October 2026, and dry runs for 8 and 9 November 2026, with no forecast made from them; and the power check (Section 7, run 8 November 2026), which reads only rung 1's published no-weather errors. The plan is committed and tagged before the first real weather forecast; the tag's time is the evidence of timing.
 
@@ -59,7 +59,7 @@ Every setting not named here is rung 1's, unchanged.
 | **Backtest** | 16 March 2024 to 31 October 2026 | 960, less any dropped | **Confirmatory:** Q1, four tests |
 | **Prospective** | 20 November 2026 to 31 March 2027 | 132, less any dropped or not published on time | Descriptive, pre-specified in Section 6 |
 
-*960, not 970:* Brief 4 first set the start at 6 March 2024, the first run with solar radiation; revision 11 moved it to 16 March, because each context's last ten days come from runs, and before 16 March some of those runs lack solar radiation, so the agreed rules would drop 6 to 15 March anyway.
+**This supersedes the date stated in decision 7.** Decision 7 named 6 March 2024, the first run with solar radiation, as the start. The ten-day splice requires ten days of runs with solar radiation in every context, so the first target day with a complete context is 16 March 2024 (D−10 = 6 March), and the backtest is 960 days, not 970. This applies the agreed splice rule; it does not change it. Brief 4 records the correction in revision 11 (8 November 2026).
 
 Prospective days from 5 to 19 November 2026, before the weather processing was frozen, are reported descriptively and kept apart from the window. A prospective day counts only if its weather inputs reached GitHub before 00:00 UK time on D (by GitHub's record) and its no-weather forecast met the prospective plan's own rule.
 
@@ -114,7 +114,7 @@ Reported for every forecaster, with 90% intervals from the prospective bootstrap
 
 **Method.** For each forecaster, the weather arm is simulated from that forecaster's own real errors: a share *c* of each half-hour's simulated error is its real error, and the rest is the same forecaster's error on a day at least 30 days away; the result is scaled so that the true effect holds over the window. Each replication tests on a block-resampled set of days, as a real study would see them.
 
-**The noise, *c*.** *c* is the correlation between the two arms' errors: how much of a forecaster's error with weather is the same error it made without. The brief requires it to be estimated from rung 1's similar forecasters, never from weather forecasts. Over the backtest window, the three models' half-hourly errors correlate at 0.82 (Chronos-2 with TimesFM 2.5) to 0.95 (Chronos-2 with Timestral). One model with and without weather should agree at least as closely as two different models, so **0.82 is the cautious value and 0.9 the optimistic one;** the table gives both, as "cautious / optimistic".
+**The noise, *c*.** *c* is the correlation between the two arms' errors: how much of a forecaster's error with weather is the same error it made without. The brief requires it to be estimated from rung 1's similar forecasters, never from weather forecasts. Over the backtest window, the three models' half-hourly errors correlate at 0.82 (Chronos-2 with TimesFM 2.5) to 0.95 (Chronos-2 with Timestral). The table gives two values, as "cautious / optimistic": **0.82**, the lowest correlation between any two of rung 1's models, and **0.9**. The within-model correlation cannot be measured before any weather-forecast error exists, so a cross-model one stands in for it. This is a conservative proxy: the two arms of one model share the base model and the demand inputs and differ only in weather, so their true correlation is likely higher, which would give more power than the table shows. The conclusion below holds across the range used: even at 0.9, no prospective test exceeds 0.39. The rule is applied at these two values, set before the table was seen, and not re-run at higher ones.
 
 **Windows.** The backtest is its 960 days. The prospective window is stood in for by rung 1's two winters, 20 November to 31 March in 2024–25 and 2025–26: 132 days each ("one winter", alternating), and 264 together ("two winters").
 
