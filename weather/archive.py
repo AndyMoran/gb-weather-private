@@ -55,26 +55,30 @@ def _ranges(entries, gap=4_000_000):
     return out
 
 
-def fetch(date, steps, params, target):
-    """Write the wanted fields of the 00 UTC run of `date` to `target` (GRIB). Returns (copy, layout)."""
+def fetch(date, steps, params, target, optional=()):
+    """Write the wanted fields of the 00 UTC run of `date` to `target` (GRIB). Returns (copy, layout, absent).
+    Parameters in `optional` may be absent from the run (solar radiation before 6 March 2024); others may not."""
     for src, root in SOURCES.items():
         if _cool.get(src, 0) > time.time(): continue
         for layout in LAYOUTS:
             base = f'{root}/{date:%Y%m%d}/00z/{layout}{date:%Y%m%d}000000'
             try:
+                absent = set()
                 with open(target, 'wb') as out:
                     for s in steps:
                         idx = [json.loads(l) for l in get(f'{base}-{s}h-oper-fc.index').decode().splitlines() if l.strip()]
                         want = [e for e in idx if e.get('param') in params and e.get('type', 'fc') == 'fc']
-                        if {e['param'] for e in want} != set(params):
-                            raise RuntimeError(f'{date} step {s}: index lacks {set(params) - {e["param"] for e in want}}')
+                        lack = set(params) - {e['param'] for e in want}
+                        if lack - set(optional):
+                            raise RuntimeError(f'{date} step {s}: index lacks {lack - set(optional)}')
+                        absent |= lack
                         blobs = {a: get(f'{base}-{s}h-oper-fc.grib2', {'Range': f'bytes={a}-{z}'}) for a, z in _ranges(want)}
                         for e in sorted(want, key=lambda e: int(e['_offset'])):
                             a = int(e['_offset']); st = max(k for k in blobs if k <= a)
                             msg = blobs[st][a - st:a - st + int(e['_length'])]
                             if msg[:4] != b'GRIB' or msg[-4:] != b'7777': raise RuntimeError(f'{date} step {s}: bad GRIB')
                             out.write(msg)
-                return src, layout
+                return src, layout, sorted(absent)
             except Missing:
                 continue                                       # not in this layout (or not on this copy)
             except Busy:
@@ -122,7 +126,7 @@ def _keys_azure(prefix):
         if not marker: return out
 
 
-def public_by(date, steps):
+def public_by(date, steps, by=None):
     """When every step of the run of `date` was on at least one copy: (earliest complete time UTC, copy), or
     (None, reason). Times before 05:45 UTC on the run's date are impossible for a real upload and ignored."""
     floor = dt.datetime.combine(date, dt.time(5, 45), dt.timezone.utc)
@@ -136,6 +140,7 @@ def public_by(date, steps):
             if all(s in got for s in steps):
                 t = max(got[s] for s in steps)
                 if t >= floor and (best is None or t < best[0]): best = (t, src)
+                if by is not None and best is not None and best[0] <= by: return best   # proven on time: stop
             else:
                 notes.append(f'{src}: steps missing')
         except Exception as e:

@@ -124,10 +124,10 @@ def run(date, public_root, manifest):
         import ecmwf_daily as E, archive as A
         g = cached.replace('.nc', '.grib2')
         try:
-            src, layout = A.fetch(date.date(), E.STEPS, ['2t', 'ssrd', '10u', '10v'], g)
+            src, layout, absent = A.fetch(date.date(), E.STEPS, ['2t', 'ssrd', '10u', '10v'], g, optional=('ssrd',))
         except A.Missing:
             return None, dict(copy=None, file=None, note='not on the collector or any archive copy')
         E.crop_to_gb(g, cached + '.part'); os.replace(cached + '.part', cached); os.remove(g)
-        open(cached + '.source', 'w').write(f'{src} {layout}\n')
+        open(cached + '.source', 'w').write(f'{src} {layout}' + (f' absent:{",".join(absent)}' if absent else '') + '\n')
     src = open(cached + '.source').read().strip() if os.path.exists(cached + '.source') else 'archive'
     return xr.open_dataset(cached).load(), dict(copy=f'archive ({src})', file=name, sha256=sha256(cached))

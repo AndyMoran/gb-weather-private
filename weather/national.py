@@ -72,11 +72,14 @@ def ecmwf_national(ds, w_pop, w_pv):
     vt = run + steps
     temp = _weighted(ds['t2m'], w_pop)[order] - 273.15
     wind = _weighted(np.hypot(ds['u10'], ds['v10']), w_pop)[order]
-    acc = _weighted(ds['ssrd'], w_pv)[order]   # J/m2 since the start of the run
+    # Runs before 6 March 2024 have no solar radiation: their solar is missing (NaN), never zero. They serve
+    # decision 13's temperature and wind factors; a half-hour that would take solar from them drops the day.
+    has_solar = 'ssrd' in ds
+    acc = _weighted(ds['ssrd'], w_pv)[order] if has_solar else np.full(len(steps), np.nan)   # J/m2 since the start
     # The accumulation at step 0 is zero by definition; some files omit it, which reads as missing. Set it to zero.
     # Any other missing value stops the build.
-    if np.isnan(acc[0]) and steps[0] == pd.Timedelta(0): acc[0] = 0.0
-    for name, v in (('t2m', temp), ('wind', wind), ('ssrd', acc)):
+    if has_solar and np.isnan(acc[0]) and steps[0] == pd.Timedelta(0): acc[0] = 0.0
+    for name, v in (('t2m', temp), ('wind', wind)) + ((('ssrd', acc),) if has_solar else ()):
         if np.isnan(v).any(): raise Dropped(f'run {run:%Y-%m-%d}: {name} missing at steps '
                                             f'{list((steps[np.isnan(v)] / pd.Timedelta(hours=1)).astype(int))}')
     points = pd.DataFrame({'t2m': temp, 'wind': wind, 'step_h': steps / pd.Timedelta(hours=1)}, index=vt)
@@ -203,6 +206,9 @@ def assemble(target_day, periods, era5, runs, late=(), factors=None):
     if (st[1:] < en[:-1]).any():
         raise ValueError('overlapping solar intervals in the assembled series')
     out['solar'] = I['solar'].to_numpy()[k]
+    if out['solar'].isna().any():
+        raise Dropped(f'{D:%Y-%m-%d}: {int(out["solar"].isna().sum())} half-hours would take solar radiation from a run '
+                      'that has none (before 6 March 2024)')
     days = mids.tz_convert('UTC').tz_localize(None).normalize()
     out['source'] = ['era5' if d < D - SPLICE_DAYS * DAY else f"ifs {src_of_day[min(d, D)]:%Y-%m-%d}"
                      for d in days]
