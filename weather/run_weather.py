@@ -441,8 +441,12 @@ def mode_synthetic():
     say('Q1:', {k: (round(v['ratio'], 3), v['rejected']) for k, v in res['q1'].items()})
     say('Q4 (stand-in):', {k: round(v, 3) for k, v in res['q4']['chronos2'].items() if k.startswith('fr_')})
     q1r = res['q1']['regression']
+    n_str = len(res['descriptive'].get('cycle_straddle_days', []))
+    say(f'cycle-change days dropped in the sensitivity: {n_str}; Q1 three readings (regression):',
+        res['descriptive']['q1_three_readings']['regression'])
     ok = all(G.values()) and q1r['rejected'] and q1r['ratio'] < 0.9 and res['n_days'] > 100 and \
-        'q1_without_fallback_days' in res['descriptive'] and res['q2'] and res['q3'] and res['q4']
+        'q1_without_fallback_days' in res['descriptive'] and res['q2'] and res['q3'] and res['q4'] and \
+        (n_str == 0 or 'q1_without_cycle_straddle' in res['descriptive'])
     say('synthetic pipeline: ' + ('PASS' if ok else 'FAIL') + f' ({res["n_days"]} days; synthetic demand responds to '
         f'temperature, so the regression with weather must beat it without: ratio {q1r["ratio"]:.3f}, rejected {q1r["rejected"]})')
     return ok
