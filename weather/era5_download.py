@@ -1,6 +1,7 @@
 """
 Download ERA5 for the weather study (Brief 4, Section 3): hourly 2 m temperature, 10 m wind (u, v) and surface solar
-radiation over the GB box, one calendar month per request, from January 2023 to the latest day ERA5 covers.
+radiation over the GB box, one calendar month per request, from March 2023 to the latest day ERA5 covers. (The first backtest day,
+16 March 2024, trains the regression from 15 March 2023, D-367.)
 
 Why this shape:
   - One request at a time, never in parallel, and only for days ERA5 has published. The CDS protection measures
@@ -22,7 +23,7 @@ import requests
 
 OUT = os.path.expanduser('~/gb-weather-data/era5'); os.makedirs(OUT, exist_ok=True)
 LOG = os.path.join(OUT, 'files.csv')
-FIRST = dt.date(2023, 1, 1)
+FIRST = dt.date(2023, 3, 1)
 AREA = [61, -9, 49, 2.5]                                 # north, west, south, east: the collector's GB box
 VARS = ['2m_temperature', '10m_u_component_of_wind', '10m_v_component_of_wind', 'surface_solar_radiation_downwards']
 CATALOGUE = 'https://cds.climate.copernicus.eu/api/catalogue/v1/collections/reanalysis-era5-single-levels'

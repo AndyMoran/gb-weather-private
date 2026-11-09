@@ -19,7 +19,7 @@ Outputs:
   build.json                     hashes of the code and weights, counts, and every output's SHA-256
 
 Run in `wx`:
-    python backtest_inputs.py                                  # all 960 days (needs ERA5 from January 2023)
+    python backtest_inputs.py                                  # all 960 days (needs ERA5 from 15 March 2023)
     python backtest_inputs.py --from 2026-04-15 --to 2026-10-31  # a partial build on the months downloaded
     python backtest_inputs.py --phase runs --workers 3        # only prefetch runs (long: run overnight)
 """
