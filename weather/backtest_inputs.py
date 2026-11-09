@@ -19,7 +19,7 @@ Outputs:
   build.json                     hashes of the code and weights, counts, and every output's SHA-256
 
 Run in `wx`:
-    python backtest_inputs.py                                  # all 960 days (needs ERA5 from January 2024)
+    python backtest_inputs.py                                  # all 960 days (needs ERA5 from January 2023)
     python backtest_inputs.py --from 2026-04-15 --to 2026-10-31  # a partial build on the months downloaded
     python backtest_inputs.py --phase runs --workers 3        # only prefetch runs (long: run overnight)
 """
@@ -61,6 +61,10 @@ def phase_runs(dates, workers):
     with cf.ThreadPoolExecutor(workers) as ex:
         for k, (d, what, sec) in enumerate(ex.map(one, todo), 1):
             if k % 20 == 0 or what.startswith(('ERROR', 'absent')): say(f'  {k}/{len(todo)} {d}: {what} ({sec:.0f} s)')
+    held = [d for d in dates if any(os.path.exists(os.path.join(p, f'ifs_0p25_{d:%Y%m%d}_00z_gb.nc'))
+                                    for p in (os.path.join(PUBLIC, 'prospective', 'weather', 'data'), S.RUNS_DIR))]
+    missing = sorted(set(dates) - set(held))
+    say(f'runs: {len(held)} of {len(dates)} held; missing: {", ".join(map(str, missing)) if missing else "none"}')
 
 
 def phase_availability(dates, workers):

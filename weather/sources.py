@@ -10,8 +10,11 @@ Runs:  the daily collector's cropped files (prospective/weather/data/, checked a
        crop function, cached in ~/gb-weather-data/runs/. A run on no copy is absent, and national.assemble applies
        the rules for missing runs.
 """
-import csv, glob, hashlib, os, re, sys, zipfile
+import csv, glob, hashlib, os, re, sys, warnings, zipfile
 import numpy as np, pandas as pd, xarray as xr
+# cfgrib merges a file's variables with xarray's default `compat`, which a future xarray will change. Our files never
+# hold two variables of one name, so the result is the same under either default (gate check 4 compares every value).
+warnings.filterwarnings('ignore', message='In a future version of xarray the default value for compat', category=FutureWarning)
 
 DATA = os.path.expanduser('~/gb-weather-data')
 ERA5_DIR, ARCO_DIR, RUNS_DIR = (os.path.join(DATA, d) for d in ('era5', 'era5_arco', 'runs'))
