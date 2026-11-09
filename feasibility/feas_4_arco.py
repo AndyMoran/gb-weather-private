@@ -10,16 +10,18 @@ ERA5T) in a public Zarr store on Google Cloud, readable without an account. Befo
   3  Is its solar radiation the same hourly accumulation (J/m2 per hour), or a different convention?
 
 Reads anonymously; needs gcsfs and zarr 3:  pip install gcsfs "zarr>=3"
-Run in `wx`:  python feas_4_arco.py
+Run in `wx`:  python feas_4_arco.py [YYYY-MM-DD ...]   (default 2024-01-03; each day needs its month's CDS file)
+Each day ends with AGREE or DIFFER against the brief's tolerances: 0.01 K, 0.01 m/s, 100 J/m2 per hour.
 """
-import os, time, zipfile
+import os, sys, time, zipfile
 import numpy as np, xarray as xr
 
 STORE = 'gs://gcp-public-data-arco-era5/ar/full_37-1h-0p25deg-chunk-1.zarr-v3'
 NAMES = {'t2m': '2m_temperature', 'u10': '10m_u_component_of_wind', 'v10': '10m_v_component_of_wind',
          'ssrd': 'surface_solar_radiation_downwards'}
-CDS = os.path.expanduser('~/gb-weather-data/era5/era5_2024_01.nc')
-DAY = '2024-01-03'
+TOL = {'t2m': 0.01, 'u10': 0.01, 'v10': 0.01, 'ssrd': 100.0}
+DAYS = sys.argv[1:] or ['2024-01-03']
+CDS = lambda day: os.path.expanduser(f'~/gb-weather-data/era5/era5_{day[:4]}_{day[5:7]}.nc')
 
 t = time.time()
 ds = xr.open_zarr(STORE, chunks=None, storage_options=dict(token='anon'))
@@ -31,15 +33,6 @@ for short, long in NAMES.items():
     print(f'  {long}: dims {v.dims}; shape {v.shape}; chunks {enc.get("chunks") or enc.get("preferred_chunks")}; '
           f'units {v.attrs.get("units")}')
 
-# The GB box: longitudes run 0..359.75 here, so take 351..359.75 and 0..2.5 and put them in -9..2.5 order.
-t = time.time()
-sub = ds[list(NAMES.values())].sel(time=DAY, latitude=slice(61, 49))
-west = sub.sel(longitude=slice(351, 359.75)); east = sub.sel(longitude=slice(0, 2.5))
-west = west.assign_coords(longitude=west.longitude - 360)
-box = xr.concat([west, east], dim='longitude').load()
-print(f'one day over GB read in {time.time() - t:.0f} s; shape {dict(box.sizes)}')
-
-
 def open_cds(f):
     if not zipfile.is_zipfile(f): return xr.open_dataset(f, engine='netcdf4')
     d = f[:-3] + '_unzipped'; os.makedirs(d, exist_ok=True)
@@ -48,15 +41,29 @@ def open_cds(f):
                     compat='override')
 
 
-cds = open_cds(CDS)
-tc = 'valid_time' if 'valid_time' in cds.coords else 'time'
-cds = cds.sel({tc: DAY}).rename({tc: 'time'})
-for short, long in NAMES.items():
-    a = box[long].transpose('time', 'latitude', 'longitude').values
-    b = cds[short].transpose('time', 'latitude', 'longitude').values
-    if a.shape != b.shape:
-        print(f'{short}: shapes differ, ARCO {a.shape} vs CDS {b.shape}'); continue
-    d = np.abs(a - b)
-    print(f'{short}: max |ARCO - CDS| {d.max():.4g}; mean {d.mean():.3g}; CDS mean {np.abs(b).mean():.4g}; '
-          f'ratio of means {np.nanmean(a) / np.nanmean(b):.4f}')
-print('Same data and the same solar convention if every max difference is ~0 and the solar ratio is 1.0000.')
+def compare(day):
+    # The GB box: longitudes run 0..359.75 here, so take 351..359.75 and 0..2.5 and put them in -9..2.5 order.
+    t = time.time()
+    sub = ds[list(NAMES.values())].sel(time=day, latitude=slice(61, 49))
+    west = sub.sel(longitude=slice(351, 359.75)); east = sub.sel(longitude=slice(0, 2.5))
+    west = west.assign_coords(longitude=west.longitude - 360)
+    box = xr.concat([west, east], dim='longitude').load()
+    print(f'{day}: GB read from ARCO in {time.time() - t:.0f} s; shape {dict(box.sizes)}')
+    cds = open_cds(CDS(day))
+    tc = 'valid_time' if 'valid_time' in cds.coords else 'time'
+    cds = cds.sel({tc: day}).rename({tc: 'time'})
+    ok = True
+    for short, long in NAMES.items():
+        a = box[long].transpose('time', 'latitude', 'longitude').values
+        b = cds[short].transpose('time', 'latitude', 'longitude').values
+        if a.shape != b.shape:
+            print(f'  {short}: shapes differ, ARCO {a.shape} vs CDS {b.shape}'); ok = False; continue
+        d = np.abs(a - b); ok &= bool(np.nanmax(d) <= TOL[short])
+        print(f'  {short}: max |ARCO - CDS| {np.nanmax(d):.4g} (tolerance {TOL[short]:g}); mean {np.nanmean(d):.3g}; '
+              f'ratio of means {np.nanmean(a) / np.nanmean(b):.4f}')
+    print(f'{day}: {"AGREE" if ok else "DIFFER"}')
+    return ok
+
+
+results = {day: compare(day) for day in DAYS}
+print('summary:', ', '.join(f'{d} {"AGREE" if r else "DIFFER"}' for d, r in results.items()))
