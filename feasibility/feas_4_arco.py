@@ -42,12 +42,20 @@ def open_cds(f):
 
 
 def compare(day):
-    # The GB box: longitudes run 0..359.75 here, so take 351..359.75 and 0..2.5 and put them in -9..2.5 order.
-    t = time.time()
-    sub = ds[list(NAMES.values())].sel(time=day, latitude=slice(61, 49))
-    west = sub.sel(longitude=slice(351, 359.75)); east = sub.sel(longitude=slice(0, 2.5))
-    west = west.assign_coords(longitude=west.longitude - 360)
-    box = xr.concat([west, east], dim='longitude').load()
+    # The store holds one global field per chunk, so read each hour once (all longitudes) and cut GB in memory:
+    # longitudes run 0..359.75 here, so take 351..359.75 and 0..2.5 and put them in -9..2.5 order.
+    t = time.time(); parts = {}
+    hours = ds.time.sel(time=day).values
+    for long in NAMES.values():
+        fields = []
+        for k, h in enumerate(hours, 1):
+            f = ds[long].sel(time=h, latitude=slice(61, 49)).load()
+            west = f.sel(longitude=slice(351, 359.75)); east = f.sel(longitude=slice(0, 2.5))
+            fields.append(xr.concat([west.assign_coords(longitude=west.longitude - 360), east], dim='longitude'))
+            print(f'\r  {day} {long}: hour {k}/{len(hours)} ({time.time() - t:.0f} s)', end='', flush=True)
+        parts[long] = xr.concat(fields, dim='time')
+    print()
+    box = xr.Dataset(parts)
     print(f'{day}: GB read from ARCO in {time.time() - t:.0f} s; shape {dict(box.sizes)}')
     cds = open_cds(CDS(day))
     tc = 'valid_time' if 'valid_time' in cds.coords else 'time'
