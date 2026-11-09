@@ -1,6 +1,6 @@
 # Does weather help? Analysis plan for the weather study (rung 2)
 
-*Final text, agreed 8 November 2026; frozen with the weather processing (tag `weather-plan`) · Andy Moran (Heaviside Analytics) · design: Brief 4, revision 11*
+*Final text, agreed 8 November 2026, amended 9 November 2026 (model-cycle changes, decision 14); frozen with the weather processing (tag `weather-plan`) · Andy Moran (Heaviside Analytics) · design: Brief 4, revision 12*
 
 > **Status at writing.** No forecaster has been given real weather-forecast inputs for a real day, and no weather-forecast error has been computed, in the backtest or the prospective window. Demand outturn to date is public, and rung 1's no-weather forecasts and errors are published (DOI [10.5281/zenodo.23962005](https://doi.org/10.5281/zenodo.23962005)). Before this plan the author has seen: rung 1's results; the synthetic test (`weather_study/SYNTHETIC_TEST.md`); feasibility checks comparing weather sources with each other, never with demand; national weather inputs built for the backtest from 15 April to 31 October 2026, and dry runs for 8 and 9 November 2026, with no forecast made from them; and the power check (Section 7, run 8 November 2026), which reads only rung 1's published no-weather errors. The plan is committed and tagged before the first real weather forecast; the tag's time is the evidence of timing.
 
@@ -34,6 +34,7 @@ All rules are Brief 4's, agreed before this plan; they are restated here for the
 - **Target day:** from the 00:00 UTC run of D−1 (steps 21 to 48). If that run was not on a public copy by 09:30 UK time on D−1, from the run of D−2 (steps 45 to 72), flagged as a *fallback day* (186 such days in the backtest, 30 March to 1 October 2025; none expected in the prospective window).
 - **History:** ERA5 up to UTC day D−11; each UTC day from D−10 to D−1 from its own run's first 24 hours. ERA5 never fills an ECMWF day.
 - **Decision 13:** the context's ERA5 days are put on ECMWF's scale with factors from D−70 to D−11 (temperature added; wind and solar multiplied), at least 30 days per variable, else unadjusted and flagged. The regression's training is not adjusted.
+- **Decision 14:** decision 13's rule runs unchanged across a change of ECMWF's model cycle. A target day *straddles* a change if its factor window holds days from before it while its horizon run is from after it. ECMWF's changes are listed in `weather_study/cycle_changes.csv`, each dated by its first 00:00 UTC run: Cycle 49r1 (13 November 2024) and Cycle 50r1 (13 May 2026), so the backtest's straddling days are 14 November 2024 to 21 January 2025 and 14 May to 21 July 2026, 138 days. Any change ECMWF makes before 31 March 2027 is added to the list from its announcement, and the prospective window gets the same treatment.
 - **Half-hours:** each takes its value at its midpoint; temperature and wind interpolated linearly, solar the mean of the interval containing the midpoint.
 - **Dropped days:** a day the rules cannot build is dropped from every analysis, for every forecaster, and listed with its reason.
 
@@ -87,7 +88,7 @@ For each forecaster: *ratio* = mean daily error with weather ÷ mean daily error
 
 Reported for every forecaster, with 90% intervals from the prospective bootstrap (seed 20270401), and no formal test or p-value:
 
-1. **Q1:** the ratio, with weather ÷ without.
+1. **Q1:** the ratio, with weather ÷ without. If ECMWF changes its model cycle before 31 March 2027, also without the window's straddling days (decision 14).
 2. **Q2** and **Q3:** as in 6.2.
 3. **Q4:** *blocks* are six four-hour blocks of UK clock time from midnight; for a block or set of blocks, the *fractional error reduction* FR = 1 − (mean absolute error with weather ÷ without), pooling every half-hour of the window's days in those blocks. Reported: FR in each block; Q4a's difference, FR(16:00–20:00) − FR(00:00–04:00); Q4b's difference, FR(12:00–16:00) − FR(the other five blocks together).
 4. **Agreement with the backtest,** for each forecaster's Q1 ratio, read by a rule fixed now:
@@ -100,6 +101,8 @@ Reported for every forecaster, with 90% intervals from the prospective bootstrap
 ### 6.4 Other descriptive results, outside the tests
 
 - every Q1 result with all fallback days removed;
+- every Q1 result without the days that straddle a model-cycle change (decision 14). It shows whether the result depends on those days; the confirmatory Q1 is computed on all days and is unaffected. With 822 days rather than 960 its intervals are a little wider, which matters little for a descriptive check;
+- Q1's three readings side by side, for each forecaster: adjusted inputs on all days (the confirmatory figure), adjusted without the straddling days, and unadjusted inputs on all days. Together they show whether decision 13 matters, whether the cycle change matters, and whether the two point the same way;
 - Q1 on the unadjusted inputs (decision 13 off), and with decision 13's minimum at 20 and 45 days;
 - the other TimesFM mode;
 - errors by block in MW, and by season;
@@ -200,3 +203,4 @@ Every sentence names the window, the ratio and its 90% interval.
 | 3 | Power branches | Every prospective test descriptive, by Brief 4's rule, robust to the noise estimate (Section 7) |
 | 4 | The prospective analysis | Pre-specified in Section 6.3, including how agreement with the backtest is read |
 | 5 | Model interfaces with weather | Section 4 |
+| 6 | Model-cycle changes | Decision 13's rule unchanged; Q1 also reported without the straddling days, descriptively (Sections 3 and 6.4) |

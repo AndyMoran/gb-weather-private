@@ -4,7 +4,7 @@ Zero-shot forecasting models and a simple regression, given the same day-ahead w
 
 Agreed · revision 11 · 8 November 2026 · Andy Moran (Heaviside Analytics)
 
-*Revision 11, 8 November 2026: the history is put on the forecast's scale (decision 13), after a monthly comparison of ECMWF and ERA5; and the backtest starts on 16 March 2024, not 6 March, since the agreed rules drop 6 to 15 March (decision 7). Revision 10, amended 7 November 2026: the bank-holiday prediction becomes a descriptive check with its reading fixed in advance (Section 6). Revision 10 adds what the archive showed about release times: through summer time 2025, ECMWF released the 00:00 UTC run after the 09:30 issue, so on 186 days the target day takes the previous day's run (decision 12). Revision 9 writes decisions 7 to 11 as rules, after review: the splice and its seams, what happens when a run is missing or late, when a source may be switched, what counts as two ERA5 copies agreeing, and the threshold that would change TimesFM's mode. Nothing is left to be decided after a test. Revision 8 records the feasibility check (Section 12) and the changes it forces: the backtest starts on 6 March 2024, the first run with solar radiation; the last ten days of every context come from ECMWF's runs, in the backtest as in the prospective window; ECMWF's Google copy is the primary source; TimesFM's regression-first mode is proposed; and the weather study gets its own software environment. Revision 7 corrects the prospective window's bank holidays, sets one study-wide error rate for the confirmatory tests, adds a temperature-by-wind term to the regression, and states that no real weather-forecast error is computed before the freeze. Revision 6 recorded the decisions on openness and inputs. Revision 5 rewrote revision 4 for plain style, changing no decision. Revisions 2 to 4 answered three reviews; the main changes were a confirmatory test for the main question, reanalysis for weather history, ECMWF's own archive as the weather source, and a scale-free measure for the time-of-day tests.*
+*Revision 12, 9 November 2026: the monthly comparison of ECMWF and ERA5 now runs from March 2024 and shows a step in wind at ECMWF's Cycle 49r1 (12 November 2024); Q1 is also reported without the days whose decision-13 window straddles a model-cycle change (decision 14). Revision 11, 8 November 2026: the history is put on the forecast's scale (decision 13), after a monthly comparison of ECMWF and ERA5; and the backtest starts on 16 March 2024, not 6 March, since the agreed rules drop 6 to 15 March (decision 7). Revision 10, amended 7 November 2026: the bank-holiday prediction becomes a descriptive check with its reading fixed in advance (Section 6). Revision 10 adds what the archive showed about release times: through summer time 2025, ECMWF released the 00:00 UTC run after the 09:30 issue, so on 186 days the target day takes the previous day's run (decision 12). Revision 9 writes decisions 7 to 11 as rules, after review: the splice and its seams, what happens when a run is missing or late, when a source may be switched, what counts as two ERA5 copies agreeing, and the threshold that would change TimesFM's mode. Nothing is left to be decided after a test. Revision 8 records the feasibility check (Section 12) and the changes it forces: the backtest starts on 6 March 2024, the first run with solar radiation; the last ten days of every context come from ECMWF's runs, in the backtest as in the prospective window; ECMWF's Google copy is the primary source; TimesFM's regression-first mode is proposed; and the weather study gets its own software environment. Revision 7 corrects the prospective window's bank holidays, sets one study-wide error rate for the confirmatory tests, adds a temperature-by-wind term to the regression, and states that no real weather-forecast error is computed before the freeze. Revision 6 recorded the decisions on openness and inputs. Revision 5 rewrote revision 4 for plain style, changing no decision. Revisions 2 to 4 answered three reviews; the main changes were a confirmatory test for the main question, reanalysis for weather history, ECMWF's own archive as the weather source, and a scale-free measure for the time-of-day tests.*
 
 **Leakage first.** This study can offer what the demand study could not: a test window in which no day can be in any model's training data. A model cannot be trained on days that had not happened when its weights were fixed, and the pinned revisions of all three models predate November 2026: TimesFM 2.5, 2 October 2025; Chronos-2, 30 October 2025; Timestral, 15 October 2026 (Hugging Face commit dates, checked 5 November 2026; Chronos-2's pinned revision is dated 5 June 2026, but its weights file is unchanged, by hash, since it was added on 30 October 2025). The window runs from 20 November 2026 to March 2027. This rests on the pinned weights' own dates, not on any maker's account of its training data.
 
@@ -76,26 +76,58 @@ Searched 5 November 2026, on arXiv and Google Scholar, for "time series foundati
 5. **The regression's training** uses the same rule relative to D: training days to D−11 from ERA5, D−10 to D−2 from the ECMWF runs.
 6. **The context's ERA5 days are put on ECMWF's scale** (decision 13, below). The regression's training is not.
 
-**Putting the history on the forecast's scale (decision 13).** ECMWF's runs and ERA5 differ systematically. Comparing each run's first day (steps 0 to 24) with ERA5 at the same instants, every day from February to October 2026 (`feasibility/feas_6_bias_by_month.py`):
+**Putting the history on the forecast's scale (decision 13).** ECMWF's runs and ERA5 differ systematically. Comparing each run's first day (steps 0 to 24) with ERA5 at the same instants, every day from March 2024 to October 2026 (`feasibility/feas_6_bias_by_month.py --all`; intervals from 500 resamplings of each month's days):
 
-| Month | Temperature, ECMWF − ERA5 (90% interval) | Wind, ECMWF ÷ ERA5 | Solar, ECMWF ÷ ERA5, daylight (90% interval) |
+| Month | Temperature, ECMWF − ERA5 (90% interval) | Wind, ECMWF ÷ ERA5 (90% interval) | Solar, ECMWF ÷ ERA5, daylight (90% interval) |
 | --- | --- | --- | --- |
-| Feb 2026 | −0.29 °C (−0.36 to −0.22) | 0.925 | 1.040 (1.001–1.079) |
-| Mar | −0.12 (−0.20 to −0.03) | 0.902 | 1.038 (1.020–1.059) |
-| Apr | −0.13 (−0.20 to −0.06) | 0.902 | 1.014 (1.002–1.029) |
-| May | +0.07 (−0.03 to +0.16) | 0.911 | 1.035 (1.017–1.053) |
-| Jun | −0.01 (−0.10 to +0.08) | 0.909 | 1.079 (1.060–1.099) |
-| Jul | +0.33 (+0.23 to +0.41) | 0.901 | 1.064 (1.043–1.090) |
-| Aug | +0.04 (−0.05 to +0.14) | 0.906 | 1.065 (1.047–1.084) |
-| Sep | −0.16 (−0.22 to −0.08) | 0.886 | 1.104 (1.077–1.129) |
-| Oct | −0.19 (−0.24 to −0.12) | 0.887 | 1.110 (1.092–1.131) |
+| Mar 2024 | −0.44 °C (−0.49 to −0.38) | 0.997 (0.990–1.004) | 0.887 (0.765–0.989) |
+| Apr | −0.35 °C (−0.40 to −0.30) | 1.011 (1.005–1.017) | 0.998 (0.978–1.021) |
+| May | −0.27 °C (−0.34 to −0.22) | 1.014 (1.008–1.020) | 1.065 (1.043–1.085) |
+| Jun | −0.28 °C (−0.34 to −0.21) | 1.033 (1.028–1.039) | 1.039 (1.025–1.055) |
+| Jul | −0.16 °C (−0.23 to −0.09) | 1.023 (1.017–1.030) | 1.090 (1.066–1.117) |
+| Aug | +0.01 °C (−0.05 to +0.08) | 1.010 (1.005–1.017) | 1.051 (1.032–1.070) |
+| Sep | +0.02 °C (−0.05 to +0.08) | 0.998 (0.990–1.007) | 1.102 (1.074–1.133) |
+| Oct | −0.12 °C (−0.16 to −0.07) | 0.999 (0.991–1.008) | 1.111 (1.084–1.137) |
+| *Cycle 49r1, from the 00:00 UTC run of 13 November 2024* | | | |
+| Nov | −0.14 °C (−0.23 to −0.05) | 0.919 (0.903–0.937) | 1.085 (1.061–1.110) |
+| Dec | −0.07 °C (−0.17 to +0.05) | 0.906 (0.901–0.913) | 1.049 (1.016–1.089) |
+| Jan 2025 | −0.33 °C (−0.40 to −0.26) | 0.908 (0.898–0.918) | 1.078 (1.048–1.114) |
+| Feb | −0.21 °C (−0.26 to −0.17) | 0.911 (0.903–0.919) | 1.002 (0.972–1.030) |
+| Mar | −0.36 °C (−0.43 to −0.30) | 0.891 (0.880–0.900) | 1.033 (1.009–1.059) |
+| Apr | −0.14 °C (−0.22 to −0.05) | 0.900 (0.890–0.912) | 1.015 (1.001–1.033) |
+| May | +0.11 °C (+0.02 to +0.19) | 0.914 (0.907–0.920) | 1.023 (1.008–1.038) |
+| Jun | −0.08 °C (−0.15 to −0.01) | 0.916 (0.908–0.923) | 1.045 (1.027–1.061) |
+| Jul | +0.01 °C (−0.08 to +0.10) | 0.916 (0.908–0.924) | 1.077 (1.057–1.101) |
+| Aug | +0.12 °C (+0.04 to +0.21) | 0.915 (0.907–0.922) | 1.065 (1.045–1.083) |
+| Sep | −0.18 °C (−0.23 to −0.14) | 0.894 (0.887–0.900) | 1.091 (1.077–1.105) |
+| Oct | −0.17 °C (−0.23 to −0.11) | 0.900 (0.894–0.906) | 1.071 (1.044–1.098) |
+| Nov | −0.17 °C (−0.23 to −0.11) | 0.903 (0.895–0.911) | 1.081 (1.060–1.105) |
+| Dec | −0.19 °C (−0.24 to −0.13) | 0.903 (0.894–0.910) | 1.070 (1.038–1.102) |
+| Jan 2026 | −0.32 °C (−0.38 to −0.26) | 0.917 (0.910–0.924) | 1.065 (1.039–1.091) |
+| Feb | −0.29 °C (−0.36 to −0.22) | 0.925 (0.918–0.933) | 1.040 (1.001–1.077) |
+| Mar | −0.12 °C (−0.21 to −0.04) | 0.902 (0.894–0.909) | 1.038 (1.021–1.058) |
+| Apr | −0.13 °C (−0.20 to −0.06) | 0.902 (0.894–0.909) | 1.014 (1.001–1.029) |
+| *Cycle 50r1, from the 00:00 UTC run of 13 May 2026* | | | |
+| May | +0.07 °C (−0.03 to +0.16) | 0.911 (0.905–0.917) | 1.035 (1.020–1.054) |
+| Jun | −0.01 °C (−0.11 to +0.08) | 0.909 (0.900–0.917) | 1.079 (1.061–1.103) |
+| Jul | +0.33 °C (+0.23 to +0.41) | 0.901 (0.894–0.909) | 1.064 (1.040–1.089) |
+| Aug | +0.04 °C (−0.07 to +0.13) | 0.906 (0.898–0.914) | 1.065 (1.048–1.089) |
+| Sep | −0.16 °C (−0.22 to −0.08) | 0.886 (0.879–0.891) | 1.104 (1.076–1.133) |
+| Oct | −0.19 °C (−0.24 to −0.12) | 0.887 (0.879–0.896) | 1.110 (1.092–1.132) |
 
-Wind is nearly steady, about a tenth lower in ECMWF (each month's interval about ±0.007). Temperature and solar follow an annual cycle well beyond their intervals (about ±0.08 °C and ±0.02): ECMWF is colder in the cool months and warmer in high summer, and its excess sunshine grows from a few percent in spring to a tenth in autumn. The day-two lead (the previous run's steps 24 to 48) agrees with the first day to within 0.01 °C and 0.005 in either ratio, so one set of factors serves both.
+Two patterns stand out.
+
+- **Wind steps once, at a model upgrade.** ECMWF brought in Cycle 49r1 with the 06:00 UTC run of 12 November 2024, so the first 00:00 UTC run on the new cycle is 13 November's. The upgrade reworked near-surface wind, with its largest gains in winter. Before it, ECMWF's wind matched ERA5's to within a few percent (×1.00 to ×1.03); from November 2024 it runs about a tenth lower (×0.89 to ×0.93) in every month. The step falls exactly between the October and November rows. Cycle 50r1, from the 00:00 UTC run of 13 May 2026, shows no step (×0.902, ×0.911, ×0.909 across April to June). Within each cycle, each month's interval is about ±0.007, so the ratio is steady.
+- **Temperature and solar follow an annual cycle** well beyond their intervals (about ±0.07 °C and ±0.02): ECMWF is colder in the cool months and warmer in high summer, and its excess sunshine grows from a few percent in spring to a tenth in autumn.
+
+The day-two lead (the previous run's steps 24 to 48) agrees with the first day to within 0.02 °C and 0.01 in either ratio on average, so one set of factors serves both.
+
+**The model upgrade and decision 13.** The rule's 60-day window adjusts to a step like 49r1's, but only once the window lies wholly after it. For target days from 14 November 2024 to 21 January 2025 (69 days, about 7% of the backtest, all in winter), the window D−70 to D−11 holds old-cycle days while the horizon and the context's last ten days come from the new cycle; the blended wind factor leaves the context's ERA5 days up to about 8% too windy relative to the rest. The rule is left as written. A cycle-aware window would buy little: in the first weeks after a change it holds fewer than 30 new-cycle days, so it falls back to unadjusted wind, which is about what the old-cycle factor gives; borrowing later days would look ahead. Instead, Q1 is reported descriptively without the days whose window straddles a cycle change (decision 14). The confirmatory Q1 is unaffected.
 
 Without a correction, every context carries a step ten days before its end, where ERA5 gives way to ECMWF. The step is not conservative for every question: the solar difference falls at midday, where Q4b is tested, and could make weather look less useful there for a reason unrelated to behind-the-meter solar.
 
 - **The rule.** For each target day D, factors are estimated from the UTC days D−70 to D−11 that both sources cover at the issue time: each run's first day, steps 0 to 24 inclusive (00:00 to 24:00 UTC, the whole day), against ERA5 at the same instants. Temperature: the mean difference, added. Wind: the ratio of totals, multiplied. Solar: the ratio of totals over ERA5-daylight 3-hour intervals (ERA5 mean above 10 W/m²), with ECMWF's 3-hour means from its accumulations and ERA5's from its hourly totals; it multiplies only ERA5 hours above 10 W/m², so night stays zero.
-- **Applied to the context only.** The window lies in the same season as the context's ERA5 days (D−56 to D−11), so it follows the cycle above. The regression's training year is not adjusted: a 60-day factor would carry one season's difference across the whole year, and there is no archive before February 2024 from which to estimate 2023's. The regression therefore trains on ERA5 and forecasts with ECMWF; in the winter months this mismatch is about 0.2 °C, roughly 100 to 200 MW of demand. It is stated as a limitation and affects only a reference forecaster: not Q1, which compares each model with and without weather, but Q3, which is read with that caveat (Section 4). Wind alone could be corrected on the training data, since its ratio is steady across the year, but the regression is kept on raw ERA5 throughout, for simplicity, and because the mismatch is bounded and stated.
+- **Applied to the context only.** The window lies in the same season as the context's ERA5 days (D−56 to D−11), so it follows the cycle above. The regression's training year is not adjusted: a 60-day factor would carry one season's difference across the whole year, and there is no archive before February 2024 from which to estimate 2023's. The regression therefore trains on ERA5 and forecasts with ECMWF; in the winter months this mismatch is about 0.2 °C, roughly 100 to 200 MW of demand. It is stated as a limitation and affects only a reference forecaster: not Q1, which compares each model with and without weather, but Q3, which is read with that caveat (Section 4). Wind alone could be corrected on the training data, since its ratio is steady within a model cycle, but the regression is kept on raw ERA5 throughout, for simplicity, and because the mismatch is bounded and stated. Since Cycle 49r1, that includes wind: the regression trains on ERA5 wind and forecasts with ECMWF wind about a tenth lower. This is a consequence of the design, not a fault, and the step above explains its size.
 - **Minimum data.** At least 30 days per variable; with fewer, that variable is left unadjusted and the day flagged. Only the start of the backtest is affected, and only solar: it is unadjusted and flagged until about 15 April 2024, when its window first holds 30 days of runs with solar radiation (which enters the runs on 6 March). Temperature and wind are never flagged: from 16 March their window already holds 34 days of runs (1 February to 5 March 2024), all in winter, a narrow season stated here. Results at 20 and 45 days are reported descriptively.
 - **What it never uses:** demand, or anything from after the issue time.
 - **Recording.** Each day's factors, and the inputs both adjusted and unadjusted, are published with the inputs. Q1 is also reported on the unadjusted inputs, descriptively.
@@ -145,7 +177,7 @@ With regression first, TimesFM in this study is a hybrid of a linear weather reg
 
 All three models accept weather, so none is dropped. The regression gets a temperature-by-wind term so that it can represent wind chill, which the evening hypothesis invokes; without it, Q3 would be tilted against the regression in exactly the block the study cares about. TimesFM's route is partly a linear regression; its result is reported with that caveat.
 
-**Q3 and the regression's weather scale.** The regression trains on ERA5 and forecasts with ECMWF (decision 13 adjusts only the models' contexts). In the cool months ECMWF runs about 0.2 °C colder than ERA5, so the regression reads the target day as colder than the weather it learned from and forecasts demand roughly 100 to 200 MW too high; in high summer the difference reverses. In the prospective window, all in the cool months, this tilts Q3 toward the models. If the models beat the regression, part of that edge may be the regression's mismatch rather than the models' skill. The result is reported with the monthly table (Section 3) beside it, so a reader can judge how much.
+**Q3 and the regression's weather scale.** The regression trains on ERA5 and forecasts with ECMWF (decision 13 adjusts only the models' contexts). In the cool months ECMWF runs about 0.2 °C colder than ERA5, so the regression reads the target day as colder than the weather it learned from and forecasts demand roughly 100 to 200 MW too high; in high summer the difference reverses. Since November 2024 ECMWF's wind is also about a tenth lower than ERA5's (Cycle 49r1, Section 3), so the regression reads the target day as calmer than the weather it learned from. In the prospective window, all in the cool months, this tilts Q3 toward the models. If the models beat the regression, part of that edge may be the regression's mismatch rather than the models' skill. The result is reported with the monthly table (Section 3) beside it, so a reader can judge how much.
 
 **The no-weather forecasts already exist.** On the backtest they are rung 1's saved forecasts, reused rather than rerun; a gate check confirms they match rung 1 exactly over the overlap, 16 March 2024 to 31 October 2026. On the prospective window they are the forecasts already made each day under the frozen prospective plan. The weather forecasts use exactly the same demand inputs, including rung 1's one filled half-hour.
 
@@ -277,7 +309,7 @@ Taken 5 November 2026:
 5. **TimesFM's XReg mode:** chosen after the feasibility check, before any weather forecast, with its reason stated.
 6. **Licences:** none outstanding. ECMWF's open data and ERA5 both allow commercial use with attribution. Open-Meteo only verifies the archive and never feeds the results.
 
-Proposed in revisions 8 to 11, each as a fixed rule; 7 to 12 agreed on 6 November 2026, 13 on 8 November:
+Proposed in revisions 8 to 12, each as a fixed rule; 7 to 12 agreed on 6 November 2026, 13 on 8 November, 14 on 9 November:
 
 7. **Backtest start:** 16 March 2024, the first day whose target and whole context have solar radiation; 960 days, inclusive, to 31 October 2026. 1 February to 15 March 2024 is excluded from every analysis (Section 3). (Agreed as 6 March on 6 November; corrected on 8 November, before the freeze, because the agreed rules already drop 6 to 15 March.)
 8. **Splice:** a fixed ten days from ECMWF's runs, in every forecast and in the regression's training, with the seam, interpolation and missing-run rules in Section 3.
@@ -286,6 +318,7 @@ Proposed in revisions 8 to 11, each as a fixed rule; 7 to 12 agreed on 6 Novembe
 11. **TimesFM's mode:** regression first, unless the specified synthetic test meets the reversal threshold in every scenario (Section 4). Settled on 6 November 2026: the test kept regression first (Section 12).
 12. **Late runs:** a run released after the issue time counts as missing; the target day falls back to the previous day's run, is flagged, and stays in the confirmatory analysis. The 186 fallback days of summer 2025 are reported without, descriptively. The prospective window is unaffected: release at 07:34 UTC leaves 56 minutes even after the clocks change on 28 March 2027.
 13. **History on the forecast's scale:** the context's ERA5 days are put on ECMWF's scale with factors from D−70 to D−11 (temperature added, wind and solar multiplied), at least 30 days each; the regression's training is not adjusted, a stated limitation (Section 3). Agreed 8 November 2026, after the monthly check the reviewer set as its gate.
+14. **Model-cycle changes:** decision 13's rule runs unchanged across a change of ECMWF's model cycle. Q1 is also reported, descriptively, without the target days whose factor window (D−70 to D−11) holds days from before a change while the horizon run is from after it: 14 November 2024 to 21 January 2025 (Cycle 49r1) and 14 May to 21 July 2026 (Cycle 50r1) in the backtest; in the prospective window, the same treatment for any change ECMWF makes before 31 March 2027. The changes are listed, with ECMWF's announcements, in `weather_study/cycle_changes.csv`. Proposed and agreed 9 November 2026, after the monthly table showed the step at Cycle 49r1.
 
 The Copernicus account is registered and working.
 

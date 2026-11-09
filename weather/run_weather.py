@@ -33,6 +33,22 @@ FORECASTERS = MODELS + ('regression',)
 VARS = ('t2m', 'wind', 'solar')
 LEVEL = 0.05 / 4                                             # Section 6.1: four tests, 0.0125 each
 BOOT, BLOCK, SEED_BT, SEED_PR, SEED_HOL = 2000, 7, 20261120, 20270401, 20261121
+FACTOR_FIRST = N.FACTOR_WINDOW[0]                             # decision 13's window starts at D-70
+CYCLES = os.path.join(PUBLIC, 'weather_study', 'cycle_changes.csv')   # ECMWF's model-cycle changes (Section 6.4)
+
+
+def cycle_changes():
+    """Dates on which ECMWF's model cycle changed, from the public list (date, cycle, source)."""
+    if not os.path.exists(CYCLES): return []
+    import csv as _csv
+    return [pd.Timestamp(r['date']) for r in _csv.DictReader(open(CYCLES))]
+
+
+def straddles(D, fallback, changes):
+    """True if D's factor window (D-70 .. D-11) holds days from before a cycle change while its horizon run is from
+    after it: the change falls after D-70 and on or before the horizon run's date (D-1, or D-2 on a fallback day)."""
+    run = D - pd.Timedelta(days=2 if fallback else 1)
+    return any(D - pd.Timedelta(days=FACTOR_FIRST) < c <= run for c in changes)
 BLOCKS = {'00-04': 0, '04-08': 1, '08-12': 2, '12-16': 3, '16-20': 4, '20-24': 5}
 GATE_DAYS = ('2024-03-31', '2025-01-15', '2026-10-25')         # rung 1's: a spring change, a winter day, an autumn change
 sha = lambda p: hashlib.sha256(open(p, 'rb').read()).hexdigest()
@@ -289,6 +305,19 @@ def evaluate(rec, fw, seed, hol, other_timesfm=None, unadjusted=None):
         res['descriptive']['q1_timesfm_other_mode'] = stat_q1(dm(other_timesfm), dm_n['timesfm25'], idx)
     if unadjusted is not None:
         res['descriptive']['q1_unadjusted_inputs'] = {k: stat_q1(dm(unadjusted[k]), dm_n[k], idx) for k in unadjusted}
+    changes = cycle_changes()
+    straddle = [i for i, D in enumerate(ds) if straddles(D, rec[D]['fallback'], changes)]
+    if straddle:
+        keep_c = [i for i in range(n) if i not in set(straddle)]; idc = boot_idx(len(keep_c), seed + 4)
+        res['descriptive']['q1_without_cycle_straddle'] = {k: stat_q1(dm_w[k][keep_c], dm_n[k][keep_c], idc) for k in FORECASTERS}
+        res['descriptive']['cycle_straddle_days'] = [f'{ds[i]:%Y-%m-%d}' for i in straddle]
+    # The three readings of Q1 side by side (Section 6.4): adjusted on all days, adjusted without the straddle days,
+    # and unadjusted. Descriptive; the confirmatory Q1 is the first column.
+    res['descriptive']['q1_three_readings'] = {
+        k: dict(adjusted_all_days=res['q1'][k]['ratio'],
+                adjusted_without_cycle_straddle=res['descriptive'].get('q1_without_cycle_straddle', {}).get(k, {}).get('ratio'),
+                unadjusted=res['descriptive'].get('q1_unadjusted_inputs', {}).get(k, {}).get('ratio'))
+        for k in FORECASTERS}
     winter = [i for i, D in enumerate(ds) if (D.month, D.day) >= (11, 20) or (D.month, D.day) <= (3, 31)]
     if winter:
         idw = boot_idx(len(winter), seed + 3)
