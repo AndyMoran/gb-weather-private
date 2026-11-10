@@ -120,8 +120,8 @@ def model_forecasts(model, rec, cov_key='cov', cov_override=None):
 def gates(rec, models, reg, series, hol, era5_hh, mode, lock=None, built=None):
     g, info = {}, {}
     if mode == 'score':
-        g['1_data_hashes'] = all(sha(p) == h for p, h in lock['files_sha256'].items() if os.path.exists(p)) and \
-            all(os.path.exists(p) for p in lock['files_sha256'])
+        fs = {os.path.expanduser(p): h for p, h in lock['files_sha256'].items()}
+        g['1_data_hashes'] = all(os.path.exists(p) and sha(p) == h for p, h in fs.items())
     # 2: no look-ahead. Demand: rung 1's context asserts its cut-off. Weather: every target value from the run of D-1
     # (or D-2 on a recorded fallback); every history value from ERA5 before D-10 or a run of a day before D.
     ok = True
@@ -174,12 +174,12 @@ def gates(rec, models, reg, series, hol, era5_hh, mode, lock=None, built=None):
     g['8_regression_independent'] = bool(worst <= 0.1); info['8_days'] = n; info['8_max_abs_mw'] = worst
     # 9: spatial weights
     if mode != 'synthetic':
-        g['9_spatial_weights'] = sha(os.path.join(DATA, 'weights', 'weights.nc')) == 'c3af7721b673386ef31285ff55deab71617bff774b7cb5c13e448dee543102be'
+        g['9_spatial_weights'] = sha(os.path.join(DATA, 'weights', 'weights.nc')) == (lock or {}).get('weights_sha256', 'c3af7721b673386ef31285ff55deab71617bff774b7cb5c13e448dee543102be')
     if mode == 'score':
         from huggingface_hub import hf_hub_download
         import models as M
         for name, (repo, rev) in M.REVISIONS.items():
-            g[f'9_{name}_weights'] = sha(hf_hub_download(repo, 'model.safetensors', revision=rev)) == lock['weights_sha256'][name]
+            g[f'9_{name}_weights'] = sha(hf_hub_download(repo, 'model.safetensors', revision=rev)) == lock['model_weights_sha256'][name]
     return g, info
 
 
@@ -276,7 +276,7 @@ def holiday_check(rec, ds, dm_w, dm_n, hol, seed):
     return out
 
 
-def evaluate(rec, fw, seed, hol, other_timesfm=None, unadjusted=None):
+def evaluate(rec, fw, seed, hol, other_timesfm=None, unadjusted=None, min_days=None):
     ds = sorted(rec); n = len(ds); idx = boot_idx(n, seed)
     dm = lambda fc: np.array([ST.daily_mae(rec[D]['y'], fc[D]) for D in ds])
     fn = {k: {D: rec[D]['nw'][k] for D in ds} for k in FORECASTERS}
@@ -305,6 +305,8 @@ def evaluate(rec, fw, seed, hol, other_timesfm=None, unadjusted=None):
         res['descriptive']['q1_timesfm_other_mode'] = stat_q1(dm(other_timesfm), dm_n['timesfm25'], idx)
     if unadjusted is not None:
         res['descriptive']['q1_unadjusted_inputs'] = {k: stat_q1(dm(unadjusted[k]), dm_n[k], idx) for k in unadjusted}
+    for m, fc in (min_days or {}).items():                    # decision 13's minimum at 20 and 45 days (Section 6.4)
+        res['descriptive'][f'q1_decision13_min{m}'] = {k: stat_q1(dm(fc[k]), dm_n[k], idx) for k in fc}
     changes = cycle_changes()
     straddle = [i for i, D in enumerate(ds) if straddles(D, rec[D]['fallback'], changes)]
     if straddle:
@@ -349,12 +351,19 @@ def mode_models_selftest():
     say('models-selftest: ' + ('PASS' if ok else 'FAIL')); return ok
 
 
-def load_real(first=None, last=None):
+def load_real(full=False):
+    """The built backtest inputs: the full build (16 March 2024 to 31 October 2026) if present, which scoring requires;
+    otherwise, for dry runs, the most recently built partial file. The decision-13 sensitivity files (inputs_min*) are
+    never taken here."""
     sys.path.insert(0, os.path.join(PUBLIC, 'code')); import run as R1
     series, pubs, hol, perf, nd = R1.load_data()
-    files = sorted(glob.glob(os.path.join(BT, 'inputs_*.csv.gz')))
-    if not files: sys.exit('no built backtest inputs in ' + BT)
-    f = files[-1]; tag = os.path.basename(f)[len('inputs_'):-len('.csv.gz')]
+    whole = os.path.join(BT, f'inputs_{FIRST:%Y-%m-%d}_{LAST:%Y-%m-%d}.csv.gz')
+    files = sorted(glob.glob(os.path.join(BT, 'inputs_2*.csv.gz')), key=os.path.getmtime)
+    if os.path.exists(whole): f = whole
+    elif full: sys.exit('scoring needs the full build: ' + whole)
+    elif files: f = files[-1]
+    else: sys.exit('no built backtest inputs in ' + BT)
+    tag = os.path.basename(f)[len('inputs_'):-len('.csv.gz')]
     days_inputs, meta = load_inputs(f, os.path.join(BT, f'days_{tag}.jsonl'))
     hh_path = os.path.join(BT, f'era5_halfhourly_{tag}.csv.gz')
     era5_hh = pd.read_csv(hh_path, index_col=0, parse_dates=True) if os.path.exists(hh_path) else None
@@ -464,7 +473,7 @@ def mode_score():
         if not os.path.exists(f): sys.exit(f'Scoring refused: {d} has no results.json; log it first.')
         if json.load(open(f)).get('gate_passed'): sys.exit(f'Scoring refused: {os.path.basename(d)} already passed.')
     out = os.path.join(OUT, f'backtest_attempt{len(done) + 1}'); os.makedirs(out)
-    series, pubs, hol, days_inputs, meta, era5_hh, built = load_real()
+    series, pubs, hol, days_inputs, meta, era5_hh, built = load_real(full=True)
     days = list(pd.date_range(FIRST, LAST))
     rec, excl = build(series, hol, pubs, days_inputs, meta, load_rung1(), era5_hh, days)
     models, fw = {}, {}
@@ -476,8 +485,15 @@ def mode_score():
     unadj = {}
     for D in rec: rec[D]['cov_unadj'] = {v: rec[D]['wx'][v + '_unadjusted'].to_numpy() for v in VARS}
     for name in MODELS: unadj[name] = model_forecasts(models[name], rec, cov_key='cov_unadj')
+    mins = {}
+    for m in (20, 45):                                        # built by sensitivity_inputs.py; other days as the main build
+        t = f'min{m}_2024-03-16_2024-05-31'
+        alt, _ = load_inputs(os.path.join(BT, f'inputs_{t}.csv.gz'), os.path.join(BT, f'days_{t}.jsonl'))
+        over = {D: {v: w[v].to_numpy() for v in VARS} for D, w in alt.items() if D in rec}
+        mins[m] = {name: model_forecasts(models[name], rec, cov_override=over) for name in MODELS}
+        say(f'decision 13 at {m} days: {len(over)} days rebuilt')
     G, info = gates(rec, models, reg, series, hol, era5_hh, 'score', lock=lock, built=built)
-    res, dm = evaluate(rec, fw, SEED_BT, hol, other_timesfm=other, unadjusted=unadj)
+    res, dm = evaluate(rec, fw, SEED_BT, hol, other_timesfm=other, unadjusted=unadj, min_days=mins)
     rows = []
     for D in rec:
         for k, t in enumerate(rec[D]['idx']):

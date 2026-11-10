@@ -137,7 +137,7 @@ def check_lock():
     lock = json.load(open(LOCK))
     for f in CODE:
         h = S.sha256(os.path.join(HERE, f))
-        if lock['code_sha256'].get(f) != h: sys.exit(f'{f} differs from the frozen version ({h[:12]})')
+        if lock['code_sha256'].get('weather/' + f) != h: sys.exit(f'{f} differs from the frozen version ({h[:12]})')
     if S.sha256(WEIGHTS) != lock['weights_sha256']: sys.exit('weights.nc differs from the frozen version')
 
 
