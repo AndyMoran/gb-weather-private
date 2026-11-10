@@ -42,7 +42,7 @@ Searched 5 November 2026, on arXiv and Google Scholar, for "time series foundati
 | Kaljevic, Arzola and Zhang (UC Santa Cruz), arXiv 2610.07232, 2026 | TimesFM 2.5, Chronos-2, Moirai 2.0 and TiRex against four trained models; day-ahead load in three US regions; weather with synthetic noise added | With noisy weather, zero-shot Chronos-2 lost its lead to a conventional model (TimesNet) |
 | Hertel et al. (KIT), arXiv 2607.15705, 2026 | Ten methods and Chronos-2 on German grid, feeder and customer loads | Chronos-2 "fails to accurately capture special events": large errors around holidays, as in rung 1 |
 | Cheong, Jiang and Ng, arXiv 2602.05390 | Foundation models with external data, Singapore and Australia | Weather's benefit was mixed and model-dependent; a simple baseline often won in Singapore's stable climate |
-| Virani et al., arXiv 2609.06656, 2026 (summary only; the abstract page could not be reached) | Chronos-2 with calendar and weather, US and European grids | Zero-shot Chronos-2 trailed purpose-built models; strong after fine-tuning |
+| Pendyala, Fu, Yan and Virani, arXiv 2609.06656, 2026 (abstract only) | Chronos-2 with covariates, ISO New England and ENTSO-E | Zero-shot Chronos-2 trailed task-specific deep-learning models, and its error grew faster with the horizon; strong at short horizons after fine-tuning |
 
 **The gap.** None of the three studies read in full uses the forecasts actually available at a fixed issue time: they use actual weather, reanalysis or synthetic noise. None scores against a system operator's forecast, none is preregistered, and none covers GB. Kaljevic and colleagues' finding, that realistic forecast errors can reverse a ranking, is why this study uses archived forecasts.
 
@@ -349,12 +349,14 @@ The Copernicus account is registered and working.
 
 The synthetic errors show that each model uses the weather. They do not predict how much weather will help on real demand: the synthetic response is simple and its noise known.
 
-**Still to do before the freeze:**
+**Done before the freeze** (10 November 2026):
 
-1. **Download ERA5** from March 2023 (running since 6 November, newest month first). The three remaining agreement checks against Google's copy passed on 9 November (15 July 2025, 15 June 2026 and 24 October 2026; the last is preliminary ERA5).
-2. **Check Virani et al. (2609.06656)** on arxiv.org, and cross-check a few archive runs against Open-Meteo's Single Runs API, allowing for resolution.
-3. **Publish the synthetic test's result** to the public repository (done privately on 6 November; the code stays private until the results note).
-4. **Freeze the weather processing** and start the daily push of national weather inputs.
-5. **Estimate the noise for the power checks,** then write and freeze the analysis plan, with both power checks and every gate check run on the real inputs with a stand-in forecaster, before any prospective error is computed.
+1. **ERA5** downloaded from March 2023. Google's copy agreed with the CDS on four days (3 January 2024, 15 July 2025, 15 June 2026 and 24 October 2026, the last preliminary ERA5).
+2. **The fourth study** checked: its authors are Pendyala, Fu, Yan and Virani, and the table in Section 2 now gives its abstract's findings. The cross-check against Open-Meteo was dropped as unnecessary: the archive matched the collector's runs value for value (part A, and gate check 4).
+3. **The synthetic test's result** published (`weather_study/SYNTHETIC_TEST.md`); the code stays private until the results note.
+4. **Noise and power** estimated (`weather_study/power.json`); the analysis plan written and agreed; every gate check run on the full backtest inputs with a stand-in forecaster, and each shown to fail on corrupted input.
+5. **The backtest inputs** built for all 960 days, none dropped, 186 on the fallback run; the decision-13 sensitivity inputs at 20 and 45 days built.
+
+**Next:** freeze (`weather/freeze_weather.py --tag`), then start the daily push of national weather inputs on 19 November.
 
 **Sources,** read 5–6 November 2026: the four studies in Section 2; ECMWF's open data page and its 29 February 2024 announcement of the expanded open data; ECMWF's dissemination schedule; the ECMWF forum threads on 503 errors from the AWS bucket and on the Data Stores Service protection measures; the google-research/arco-era5 README; the Herbie documentation on ECMWF archive sources; Open-Meteo's Single Runs, Previous Runs and Historical Forecast API documentation; Mistral's Timestral announcement (15 October 2026); timecopilot-timestral on PyPI; the google-research/timesfm README; NESO's Embedded Wind and Solar Forecasts page. Rung 1's figures by block come from `results/attempt2/results.json` in the demand study's repository.
