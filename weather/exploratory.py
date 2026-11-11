@@ -72,7 +72,7 @@ def main(run):
         e = {'release': f'{rel[name]:%Y-%m-%d}'}
         for part, ii in (('before', np.where(dts < rel[name])[0]), ('after', np.where(dts >= rel[name])[0])):
             if len(ii) < 14: e[part] = dict(n_days=int(len(ii)), note='too few days'); continue
-            e[part] = ratio(dm[name, 'weather'][ii], dm[name, 'no_weather'][ii], ii[boot_idx(len(ii), 7)])
+            e[part] = ratio(dm[name, 'weather'][ii], dm[name, 'no_weather'][ii], boot_idx(len(ii), 7))
         out['E1_release'][name] = e
 
     # E2: block length
