@@ -12,10 +12,16 @@ E1 and E2 read the run's saved forecasts; E3 runs the regression once more, with
       factors for that day, its training unchanged. Reported: the regression's Q1, and Q3 (each model's error over
       this regression's). A check first reruns the regression unchanged on 10 days and requires the saved forecasts
       to within 1e-6 MW.
+  E4  Calendar (added 12 November 2026, after publication): the regression has day-of-week, bank-holiday and
+      Christmas terms; the models have no calendar. Q3 (each model's error over the regression's), with and without
+      weather, on all days and on ordinary days only: every day except England and Wales bank holidays (the study's
+      GOV.UK file, as the regression uses it) and 24 December to 2 January (as the regression's calendar). Also Q1 on
+      ordinary days, and each forecaster's mean error on the excluded days. A check first requires the all-days Q3
+      ratios to equal results.json. Run alone with --e4; its results are merged into exploratory.json and .md.
 
 Bootstrap as the plan: 2,000 draws, seed 20261120, the same draws for both arms.
 
-Run in `gbwx`:   python weather/exploratory.py [results/backtest_attempt1]
+Run in `gbwx`:   python weather/exploratory.py [--e4] [results/backtest_attempt1]
 Writes exploratory.json and exploratory.md beside forecasts.csv.
 """
 import json, os, sys
@@ -122,5 +128,55 @@ def main(run):
     open(os.path.join(run, 'exploratory.md'), 'w').write('\n'.join(md) + '\n'); print('\n'.join(md))
 
 
+def e4(run):
+    f = pd.read_csv(os.path.join(run, 'forecasts.csv'))
+    days = list(dict.fromkeys(f['day'])); n = len(days)
+    g = {d: x for d, x in f.groupby('day', sort=False)}
+    dm = {(k, a): np.array([np.abs(g[d]['outturn'] - g[d][f'{k}_{a}']).mean() for d in days])
+          for k in FORECASTERS for a in ('weather', 'no_weather')}
+    sys.path.insert(0, os.path.join(R.PUBLIC, 'code')); import run as R1
+    hol = R1.load_data()[2]
+    hol = {pd.Timestamp(h).normalize() for h in hol}
+    ts = [pd.Timestamp(d) for d in days]
+    special = np.array([(t in hol) or (t.month == 12 and t.day >= 24) or (t.month == 1 and t.day <= 2) for t in ts])
+    ordinary = np.where(~special)[0]
+    res = json.load(open(os.path.join(run, 'results.json')))['results']
+    for k in ('chronos2', 'timestral', 'timesfm25'):            # the check: all-days Q3 as scored
+        want = res['q3'][k]['with_weather']['ratio']; got = dm[k, 'weather'].mean() / dm['regression', 'weather'].mean()
+        if abs(got - want) > 1e-9: sys.exit(f'Check failed: E4 all-days Q3 for {k} is {got}, results.json {want}')
+    print(f'check: all-days Q3 equals results.json; {int(special.sum())} calendar days excluded, {len(ordinary)} ordinary')
+    idx_all, idx_ord = boot_idx(n, 7), boot_idx(len(ordinary), 7)
+    out = {'note': 'exploratory; added 12 November 2026, after the results note was published',
+           'excluded_days': [days[i] for i in np.where(special)[0]], 'q3': {}, 'q1_ordinary': {}, 'mae_excluded_days': {}}
+    for k in ('chronos2', 'timestral', 'timesfm25'):
+        out['q3'][k] = {f'{arm}|{part}': ratio(dm[k, arm][ii], dm['regression', arm][ii], ix)
+                        for arm in ('weather', 'no_weather')
+                        for part, ii, ix in (('all days', np.arange(n), idx_all), ('ordinary days', ordinary, idx_ord))}
+    for k in FORECASTERS:
+        out['q1_ordinary'][k] = ratio(dm[k, 'weather'][ordinary], dm[k, 'no_weather'][ordinary], idx_ord)
+        out['mae_excluded_days'][k] = {a: float(dm[k, a][special].mean()) for a in ('weather', 'no_weather')}
+    fmt = lambda r: f"{r['ratio']:.3f} ({r['ci90'][0]:.3f}\u2013{r['ci90'][1]:.3f})"
+    md = ['', '## E4: calendar (added 12 November 2026, after publication)', '',
+          f"Ordinary days: all but {int(special.sum())} bank-holiday and 24 December to 2 January days.", '',
+          '| Error \u00f7 regression\'s | All days, without weather | All days, with | Ordinary days, without | Ordinary days, with |',
+          '| --- | --- | --- | --- | --- |']
+    for k in ('chronos2', 'timestral', 'timesfm25'):
+        q = out['q3'][k]
+        md.append(f"| {NAMES[k]} | {fmt(q['no_weather|all days'])} | {fmt(q['weather|all days'])} | "
+                  f"{fmt(q['no_weather|ordinary days'])} | {fmt(q['weather|ordinary days'])} |")
+    md += ['', '| Q1 on ordinary days | Ratio (90% interval) | Mean error on excluded days, without \u2192 with weather (MW) |',
+           '| --- | --- | --- |']
+    for k in FORECASTERS:
+        e = out['mae_excluded_days'][k]
+        md.append(f"| {NAMES[k]} | {fmt(out['q1_ordinary'][k])} | {e['no_weather']:,.0f} \u2192 {e['weather']:,.0f} |")
+    jp = os.path.join(run, 'exploratory.json'); j = json.load(open(jp)) if os.path.exists(jp) else {}
+    j['E4_calendar'] = out; json.dump(j, open(jp, 'w'), indent=1)
+    mp = os.path.join(run, 'exploratory.md'); prev = open(mp).read() if os.path.exists(mp) else ''
+    prev = prev.split('\n## E4:')[0].rstrip('\n')
+    open(mp, 'w').write(prev + '\n' + '\n'.join(md) + '\n'); print('\n'.join(md))
+
+
 if __name__ == '__main__':
-    main(os.path.expanduser(sys.argv[1]) if len(sys.argv) > 1 else os.path.join(R.OUT, 'backtest_attempt1'))
+    args = [a for a in sys.argv[1:] if a != '--e4']
+    run = os.path.expanduser(args[0]) if args else os.path.join(R.OUT, 'backtest_attempt1')
+    e4(run) if '--e4' in sys.argv else main(run)
