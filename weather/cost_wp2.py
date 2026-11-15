@@ -1,7 +1,7 @@
 """
 Checkpoint 0, WP2: cost (gb-foundation-model-tests, checkpoint0/PLAN.md, frozen at tag checkpoint0-plan).
 
-Eight forecaster set-ups, timed on the 20 days in checkpoint0/wp2_days.csv, on this machine, CPU only, with the same
+Eight forecaster set-ups (nine rows: TimesFM is timed both as scored and one day per call), timed on the 20 days in checkpoint0/wp2_days.csv, on this machine, CPU only, with the same
 thread count (4) for every forecaster, one forecaster per process:
     chronos2_A          Chronos-2, calendar and weather (E5 arm A: calendar_study.py's covariates)
     timesfm25_weather   TimesFM 2.5, weather (the scored configuration)
@@ -31,7 +31,7 @@ os.environ['JAX_PLATFORMS'] = 'cpu'
 import numpy as np, pandas as pd
 
 HERE = os.path.dirname(os.path.abspath(__file__)); sys.path.insert(0, HERE)
-NAMES = ('chronos2_A', 'timesfm25_weather', 'timestral_A', 'timestral_weather', 'regression_weather',
+NAMES = ('chronos2_A', 'timesfm25_weather', 'timesfm25_weather_single', 'timestral_A', 'timestral_weather', 'regression_weather',
          'lightgbm_default', 'lightgbm_s1', 'lightgbm_s2')
 OUT = os.path.join(os.path.expanduser('~/gb-weather-data'), 'results', 'checkpoint0')
 
@@ -75,9 +75,27 @@ def one(name, dry):
     saved = saved_forecasts(R.PUBLIC)
     rss_data = rss_mb()
 
+    per_day = 1
     t0 = time.perf_counter()
-    if name in ('chronos2_A', 'timestral_A', 'timesfm25_weather', 'timestral_weather'):
-        m = MW.get(name.split('_')[0])
+    if name == 'timesfm25_weather':
+        # As scored: TimesFM fits one in-context regression across every input in a call, so its forecast for a day
+        # depends on the other days in the call. Each sample day is forecast inside its scored batch (days sharing a
+        # horizon, in date order, RUN_BATCH at a time, as run_weather.model_forecasts); the call's time is divided by
+        # the batch's size.
+        m = MW.get('timesfm25'); groups = {}
+        for D in rec: groups.setdefault(R.C.horizon(D), []).append(D)
+        batch = {}
+        for ds in groups.values():
+            for i in range(0, len(ds), R.C.RUN_BATCH):
+                for D in ds[i:i + R.C.RUN_BATCH]: batch[D] = ds[i:i + R.C.RUN_BATCH]
+        sizes = {}
+        def f(D):
+            sizes[D] = len(batch[D])
+            return CS.run_arm(m, {d: rec[d] for d in batch[D]}, CS.WX, 'cov')[D]
+    elif name in ('chronos2_A', 'timestral_A', 'timesfm25_weather_single', 'timestral_weather'):
+        if name == 'timesfm25_weather_single': name_m = 'timesfm25'
+        else: name_m = name.split('_')[0]
+        m = MW.get(name_m)
         names, key = (CS.WX + CS.CAL, 'cov_cw') if name.endswith('_A') else (CS.WX, 'cov')
         f = lambda D: CS.run_arm(m, {D: rec[D]}, names, key)[D]
     elif name == 'regression_weather':
@@ -90,15 +108,23 @@ def one(name, dry):
     f(days[0])                                                # warm-up, untimed
     times, devs = [], []
     for D in days:
-        t = time.perf_counter(); fc = f(D); times.append(time.perf_counter() - t)
-        ref = saved.loc[[x.isoformat() for x in rec[D]['idx']], name].to_numpy(float)
+        t = time.perf_counter(); fc = f(D)
+        times.append((time.perf_counter() - t) / (len(batch[D]) if name == 'timesfm25_weather' else 1))
+        ref = saved.loc[[x.isoformat() for x in rec[D]['idx']], name.replace('_single', '')].to_numpy(float)
         devs.append(float(np.max(np.abs(np.asarray(fc, float) - ref))))
-    tol = 0.0 if name.startswith('lightgbm') else 1.0
+    tol = 0.0 if name.startswith('lightgbm') else float('inf') if name.endswith('_single') else 1.0
     return dict(name=name, days=[f'{D:%Y-%m-%d}' for D in days], seconds=[round(x, 4) for x in times],
                 median_s=round(float(np.median(times)), 4), min_s=round(float(np.min(times)), 4),
                 max_s=round(float(np.max(times)), 4), load_s=round(load_s, 2),
                 rss_after_data_mb=round(rss_data, 0), peak_rss_mb=round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024, 0),
-                max_abs_diff_mw=round(max(devs), 6), tolerance_mw=tol, matches_saved=max(devs) <= tol)
+                max_abs_diff_mw=round(max(devs), 6), tolerance_mw=None if tol == float('inf') else tol,
+                matches_saved=None if tol == float('inf') else max(devs) <= tol,
+                batch_sizes=[len(batch[D]) for D in days] if name == 'timesfm25_weather' else None)
+
+
+def match(r):
+    if r['matches_saved'] is None: return f"not expected (one day per call; differs by up to {r['max_abs_diff_mw']:,.0f} MW)"
+    return f"{'yes' if r['matches_saved'] else 'NO'} (max {r['max_abs_diff_mw']:.3g} MW)"
 
 
 def markdown(res):
@@ -113,8 +139,11 @@ def markdown(res):
     for n in NAMES:
         r = res['forecasters'][n]
         L.append(f"| {n} | {r['median_s']:.2f} ({r['min_s']:.2f}–{r['max_s']:.2f}) | {r['load_s']:.1f} | {r['peak_rss_mb']:,.0f} | "
-                 f"{r['peak_rss_mb'] - r['rss_after_data_mb']:,.0f} | {'yes' if r['matches_saved'] else 'NO'} (max {r['max_abs_diff_mw']:.3g} MW) |")
-    L += ['', 'Cost is reported in time and memory only; no £ figure is computed in checkpoint 0 (PLAN.md WP2).', '']
+                 f"{r['peak_rss_mb'] - r['rss_after_data_mb']:,.0f} | {match(r)} |")
+    L += ['', 'timesfm25_weather is timed inside its scored batches of up to 64 days, per day; timesfm25_weather_single, '
+          'one day per call. TimesFM fits one covariate regression across every day in a call, so the two give different '
+          'forecasts; only the batched one reproduces the scored forecasts.',
+          '', 'Cost is reported in time and memory only; no £ figure is computed in checkpoint 0 (PLAN.md WP2).', '']
     return '\n'.join(L)
 
 
@@ -134,7 +163,7 @@ def main():
             sys.exit(f'{n} failed:\n{p.stdout[-2000:]}\n{p.stderr[-4000:]}')
         r = json.loads(line[-1][7:]); res['forecasters'][n] = r
         print(f"   median {r['median_s']:.2f} s/day, load {r['load_s']:.1f} s, peak {r['peak_rss_mb']:,.0f} MB, "
-              f"matches saved: {r['matches_saved']} (max {r['max_abs_diff_mw']:.3g} MW)", flush=True)
+              f"matches saved: {match(r)}", flush=True)
     md = markdown(res); print(md)
     if a.dry: print('dry run: nothing written'); return
     os.makedirs(OUT, exist_ok=True)
