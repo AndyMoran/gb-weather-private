@@ -131,7 +131,7 @@ def markdown(res):
     L = ['# Checkpoint 0: cost (WP2)', '',
          f"Machine: {res['machine']['cpu']}, {res['machine']['logical_cpus']} logical CPUs, {res['machine']['ram_gb']} GB RAM; "
          f"{res['machine']['os']}. Every forecaster on CPU with {res['machine']['threads']} threads, one per process, "
-         'one day per call. Times are wall-clock per forecast day, including any daily re-fit; median (range) over the 20 '
+         'one day per call except where noted below. Times are wall-clock per forecast day, including any daily re-fit; median (range) over the 20 '
          'sample days after one untimed warm-up. Memory: peak resident memory of the process, and the part above the '
          'memory held once the backtest data had loaded.', '',
          '| Forecaster | Seconds per day, median (range) | Model load (s) | Peak memory (MB) | Above data (MB) | Matches scored forecasts |',
