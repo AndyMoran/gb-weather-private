@@ -49,7 +49,7 @@ def main():
         h, first = R.C.horizon(D)
         cal = CS.calendar(r['wx'].index, hol)
         for label, names, cov in (('weather only', CS.WX, r['cov']), ('calendar + weather', CS.WX + CS.CAL, {**r['cov'], **cal})):
-            a, b = passes(f, [r['ctx']], cov, names, h)
+            a, b = passes(f, [r['ctx']], {v: [cov[v]] for v in names}, names, h)   # a batch of one day
             gap = np.abs(a - b)[0, first:first + len(r['y'])]
             print(f'{D:%Y-%m-%d} {label:19s}: main vs reflected mirror, largest gap {gap.max():7.1f} MW, mean {gap.mean():6.1f} MW')
     row = torch.as_tensor(cal['dow_sat'][None].astype(np.float32)); obs = torch.ones_like(row, dtype=torch.bool)
