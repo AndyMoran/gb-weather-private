@@ -44,7 +44,7 @@ def main():
     rec, _ = R.build(series, hol, pubs, days_inputs, meta, R.load_rung1(), era5_hh, days)
     w = MW.get('timestral'); f = w.f
     print(f'patch size {f.patch_size}; decode block {f.per_shot_horizon_patches} patches '
-          f'= {f.patch_size * f.per_shot_horizon_patches} steps; longest day-ahead horizon in the backtest '
+          f'= {f.patch_size * f.per_shot_horizon_patches} steps; longest day-ahead horizon on these days '
           f'{max(R.C.horizon(D)[0] for D in rec)} steps')
     for D, r in rec.items():
         h, first = R.C.horizon(D)
