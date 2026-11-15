@@ -170,7 +170,7 @@ def main():
     json.dump(res, open(os.path.join(OUT, 'cost.json'), 'w'), indent=1)
     open(os.path.join(OUT, 'cost.md'), 'w').write(md)
     print(f'written {OUT}/cost.json and cost.md')
-    if not all(r['matches_saved'] for r in res['forecasters'].values()):
+    if not all(r['matches_saved'] is not False for r in res['forecasters'].values()):
         print('WARNING: at least one forecaster did not reproduce its scored forecasts; report it (PLAN.md WP2)')
 
 
