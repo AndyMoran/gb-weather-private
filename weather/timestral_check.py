@@ -26,6 +26,7 @@ import calendar_study as CS
 from timestral.scaler import instance_norm_stats
 
 
+@torch.inference_mode()                                      # as Timestral's own forecast() runs
 def passes(f, ctx, cov, names, h):
     X = torch.as_tensor(np.asarray(ctx, np.float32)[:, None, :])
     K = torch.as_tensor(np.stack([np.stack([np.asarray(cov[v][k], np.float32) for v in names]) for k in range(len(ctx))]))
@@ -33,7 +34,7 @@ def passes(f, ctx, cov, names, h):
     main = f._forecast_raw(inputs, mask, h, known_covariates=K)
     mirr = f._forecast_raw(-inputs, mask, h, known_covariates=-K)
     mi = f.median_index
-    return main[..., mi].numpy()[:, 0], (-mirr.flip(-1))[..., mi].numpy()[:, 0]
+    return main[..., mi].detach().cpu().numpy()[:, 0], (-mirr.flip(-1))[..., mi].detach().cpu().numpy()[:, 0]
 
 
 def main():
